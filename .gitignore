@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.production
+
+# Native builds
+ios/
+android/
+
+# EAS credentials
+google-service-account.json
+*.p8
+*.p12
+*.mobileprovision
+
+# OS files
+.DS_Store
+*.log
+
+# TypeScript
+*.tsbuildinfo

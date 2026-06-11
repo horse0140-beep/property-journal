@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "HomeWise",
+    "slug": "homewise",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "scheme": "homewise",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0F2460"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.homewise.app",
+      "buildNumber": "1",
+      "requireFullScreen": false,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "HomeWise uses your photo library to attach photos to repairs, appliances, and home records.",
+        "NSPhotoLibraryAddUsageDescription": "HomeWise saves generated reports to your photo library.",
+        "NSCameraUsageDescription": "HomeWise uses your camera to photograph appliances, receipts, and home repairs.",
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.homewise.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F2460"
+      },
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HomeWise uses your photos to attach images to repairs and appliances.",
+          "cameraPermission": "HomeWise uses your camera to photograph appliances and receipts."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1A3C8F",
+          "defaultChannel": "maintenance"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "72fef5c5-a58d-4540-853f-85c910ce3a3e"
+      }
+    },
+    "owner": "horse536"
+  }
+}
