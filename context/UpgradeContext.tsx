@@ -29,8 +29,8 @@ export function UpgradeProvider({ children }: { children: ReactNode }) {
   const [activeFeature, setActiveFeature] = useState<PremiumFeature | null>(null);
 
   const canAccess = useCallback(
-    (feature: PremiumFeature) => hasFeatureAccess(feature, user?.plan, isAdmin),
-    [user?.plan, isAdmin]
+    (feature: PremiumFeature) => hasFeatureAccess(feature, user?.plan, isAdmin, user?.email),
+    [user?.plan, user?.email, isAdmin]
   );
 
   const showUpgrade = useCallback((feature: PremiumFeature) => {
@@ -45,13 +45,13 @@ export function UpgradeProvider({ children }: { children: ReactNode }) {
 
   const requireFeature = useCallback(
     (feature: PremiumFeature, action: () => void) => {
-      if (hasFeatureAccess(feature, user?.plan, isAdmin)) {
+      if (hasFeatureAccess(feature, user?.plan, isAdmin, user?.email)) {
         action();
       } else {
         showUpgrade(feature);
       }
     },
-    [user?.plan, isAdmin, showUpgrade]
+    [user?.plan, user?.email, isAdmin, showUpgrade]
   );
 
   const value = useMemo(

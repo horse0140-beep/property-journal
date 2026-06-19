@@ -1,6 +1,8 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import type { MaintenanceItem, Document } from "@/data/demoData";
+import type { Appliance, Document, MaintenanceItem } from "@/data/demoData";
+import { saveIncomingNotification } from "@/services/notificationService";
+import type { NotificationType } from "@/types/notifications";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -12,6 +14,13 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export type NotificationSchedulePrefs = {
+  maintenanceReminders?: boolean;
+  warrantyAlerts?: boolean;
+  applianceReminders?: boolean;
+  subscriptionReminders?: boolean;
+};
+
 export async function requestNotificationPermission(): Promise<boolean> {
   if (Platform.OS === "web") return false;
   const { status: existing } = await Notifications.getPermissionsAsync();
@@ -20,8 +29,19 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return status === "granted";
 }
 
-export async function cancelAllNotifications() {
+export async function cancelAllNotifications(): Promise<void> {
+  if (Platform.OS === "web") return;
   await Notifications.cancelAllScheduledNotificationsAsync();
+}
+
+async function cancelNotificationsByType(type: NotificationType): Promise<void> {
+  if (Platform.OS === "web") return;
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  for (const n of scheduled) {
+    if ((n.content.data as { type?: string })?.type === type) {
+      await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+  }
 }
 
 export async function scheduleMaintenanceNotifications(
@@ -32,48 +52,37 @@ export async function scheduleMaintenanceNotifications(
   const hasPermission = await requestNotificationPermission();
   if (!hasPermission) return;
 
-  // Cancel existing maintenance notifications
-  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  for (const n of scheduled) {
-    if ((n.content.data as any)?.type === "maintenance") {
-      await Notifications.cancelScheduledNotificationAsync(n.identifier);
-    }
-  }
+  await cancelNotificationsByType("maintenance");
 
   const now = Date.now();
 
   for (const item of items) {
     if (item.status === "Completed") continue;
 
-    // Schedule 3 days before if we can parse the date
     const triggerDate = parseDueDate(item.nextDue);
     if (!triggerDate) continue;
 
     const reminderTime = triggerDate.getTime() - 3 * 24 * 60 * 60 * 1000;
+
     if (reminderTime <= now) {
-      // Already past — schedule immediate if overdue
       if (item.status === "Overdue") {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "⚠️ Overdue Maintenance",
-            body: `${item.title} is overdue. Tap to mark complete.`,
-            data: { type: "maintenance", id: item.id },
-            sound: true,
-          },
-          trigger: { seconds: 5 } as any,
+        await scheduleLocal({
+          type: "maintenance",
+          title: "Overdue Maintenance",
+          body: `${item.title} is overdue. Tap to mark complete.`,
+          sourceId: item.id,
+          trigger: { seconds: 5 },
         });
       }
       continue;
     }
 
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "🔧 Maintenance Reminder",
-        body: `${item.title} is due in 3 days.`,
-        data: { type: "maintenance", id: item.id },
-        sound: true,
-      },
-      trigger: { date: new Date(reminderTime) } as any,
+    await scheduleLocal({
+      type: "maintenance",
+      title: "Maintenance Reminder",
+      body: `${item.title} is due in 3 days.`,
+      sourceId: item.id,
+      trigger: { date: new Date(reminderTime) },
     });
   }
 }
@@ -86,12 +95,7 @@ export async function scheduleWarrantyNotifications(
   const hasPermission = await requestNotificationPermission();
   if (!hasPermission) return;
 
-  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  for (const n of scheduled) {
-    if ((n.content.data as any)?.type === "warranty") {
-      await Notifications.cancelScheduledNotificationAsync(n.identifier);
-    }
-  }
+  await cancelNotificationsByType("warranty");
 
   const now = Date.now();
 
@@ -101,51 +105,246 @@ export async function scheduleWarrantyNotifications(
     const expiry = parseDueDate(doc.expiresDate);
     if (!expiry) continue;
 
-    // 30-day warning
     const thirtyDayWarning = expiry.getTime() - 30 * 24 * 60 * 60 * 1000;
     if (thirtyDayWarning > now) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "🛡️ Warranty Expiring Soon",
-          body: `${doc.title} expires in 30 days. Tap to review.`,
-          data: { type: "warranty", id: doc.id },
-          sound: true,
-        },
-        trigger: { date: new Date(thirtyDayWarning) } as any,
+      await scheduleLocal({
+        type: "warranty",
+        title: "Warranty Expiring Soon",
+        body: `${doc.title} expires in 30 days. Tap to review.`,
+        sourceId: doc.id,
+        trigger: { date: new Date(thirtyDayWarning) },
       });
     }
 
-    // 7-day warning
     const sevenDayWarning = expiry.getTime() - 7 * 24 * 60 * 60 * 1000;
     if (sevenDayWarning > now) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "⚠️ Warranty Expiring in 7 Days",
-          body: `${doc.title} expires soon. Renew now.`,
-          data: { type: "warranty", id: doc.id },
-          sound: true,
-        },
-        trigger: { date: new Date(sevenDayWarning) } as any,
+      await scheduleLocal({
+        type: "warranty",
+        title: "Warranty Expiring in 7 Days",
+        body: `${doc.title} expires soon. Renew now.`,
+        sourceId: doc.id,
+        trigger: { date: new Date(sevenDayWarning) },
       });
     }
   }
 }
 
-function parseDueDate(dateStr: string): Date | null {
+export async function scheduleApplianceNotifications(
+  appliances: Appliance[]
+): Promise<void> {
+  if (Platform.OS === "web") return;
+
+  const hasPermission = await requestNotificationPermission();
+  if (!hasPermission) return;
+
+  await cancelNotificationsByType("appliance");
+
+  const now = Date.now();
+
+  for (const appliance of appliances) {
+    const replacementDate = getApplianceReplacementDate(appliance);
+    if (!replacementDate) continue;
+
+    const thirtyDayWarning = replacementDate.getTime() - 30 * 24 * 60 * 60 * 1000;
+    if (thirtyDayWarning > now) {
+      await scheduleLocal({
+        type: "appliance",
+        title: "Appliance Replacement Reminder",
+        body: `${appliance.name} may need replacement in 30 days.`,
+        sourceId: appliance.id,
+        trigger: { date: new Date(thirtyDayWarning) },
+      });
+    }
+
+    const sevenDayWarning = replacementDate.getTime() - 7 * 24 * 60 * 60 * 1000;
+    if (sevenDayWarning > now) {
+      await scheduleLocal({
+        type: "appliance",
+        title: "Appliance Replacement Soon",
+        body: `${appliance.name} is nearing end of life. Plan a replacement.`,
+        sourceId: appliance.id,
+        trigger: { date: new Date(sevenDayWarning) },
+      });
+    }
+
+    if (appliance.condition === "Replace Soon" && replacementDate.getTime() <= now + 14 * 24 * 60 * 60 * 1000) {
+      await scheduleLocal({
+        type: "appliance",
+        title: "Replace Appliance",
+        body: `${appliance.name} is marked Replace Soon.`,
+        sourceId: appliance.id,
+        trigger: { seconds: 10 },
+      });
+    }
+  }
+}
+
+export async function scheduleSubscriptionRenewalNotifications(
+  renewalDateIso: string | null,
+  planLabel: string
+): Promise<void> {
+  if (Platform.OS === "web") return;
+
+  const hasPermission = await requestNotificationPermission();
+  if (!hasPermission) return;
+
+  await cancelNotificationsByType("subscription");
+
+  const renewal = renewalDateIso ? new Date(renewalDateIso) : null;
+  const now = Date.now();
+
+  if (renewal && !isNaN(renewal.getTime())) {
+    const sevenDayWarning = renewal.getTime() - 7 * 24 * 60 * 60 * 1000;
+    if (sevenDayWarning > now) {
+      await scheduleLocal({
+        type: "subscription",
+        title: "Subscription Renewal Reminder",
+        body: `Your ${planLabel} plan renews in 7 days.`,
+        trigger: { date: new Date(sevenDayWarning) },
+      });
+    }
+
+    const oneDayWarning = renewal.getTime() - 24 * 60 * 60 * 1000;
+    if (oneDayWarning > now) {
+      await scheduleLocal({
+        type: "subscription",
+        title: "Subscription Renews Tomorrow",
+        body: `Your ${planLabel} subscription renews tomorrow.`,
+        trigger: { date: new Date(oneDayWarning) },
+      });
+    }
+    return;
+  }
+
+  // Fallback: monthly reminder for paid plans without a known date
+  if (planLabel !== "Free") {
+    const fallback = new Date(now + 25 * 24 * 60 * 60 * 1000);
+    await scheduleLocal({
+      type: "subscription",
+      title: "Subscription Reminder",
+      body: `Review your ${planLabel} subscription and billing details.`,
+      trigger: { date: fallback },
+    });
+  }
+}
+
+export async function scheduleAllNotifications(input: {
+  maintenance: MaintenanceItem[];
+  documents: Document[];
+  appliances: Appliance[];
+  renewalDateIso: string | null;
+  planLabel: string;
+  prefs: NotificationSchedulePrefs;
+}): Promise<void> {
+  if (Platform.OS === "web") return;
+
+  const hasPermission = await requestNotificationPermission();
+  if (!hasPermission) return;
+
+  if (input.prefs.maintenanceReminders !== false) {
+    await scheduleMaintenanceNotifications(input.maintenance);
+  } else {
+    await cancelNotificationsByType("maintenance");
+  }
+
+  if (input.prefs.warrantyAlerts !== false) {
+    await scheduleWarrantyNotifications(input.documents);
+  } else {
+    await cancelNotificationsByType("warranty");
+  }
+
+  if (input.prefs.applianceReminders !== false) {
+    await scheduleApplianceNotifications(input.appliances);
+  } else {
+    await cancelNotificationsByType("appliance");
+  }
+
+  if (input.prefs.subscriptionReminders !== false) {
+    await scheduleSubscriptionRenewalNotifications(input.renewalDateIso, input.planLabel);
+  } else {
+    await cancelNotificationsByType("subscription");
+  }
+}
+
+export async function sendTestNotification(): Promise<boolean> {
+  if (Platform.OS === "web") return false;
+  const granted = await requestNotificationPermission();
+  if (!granted) return false;
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: "HomeWise Test Notification",
+      body: "Push notifications are working correctly.",
+      data: { type: "system", id: "test" },
+      sound: true,
+    },
+    trigger: { seconds: 2 } as Notifications.NotificationTriggerInput,
+  });
+
+  await saveIncomingNotification({
+    type: "system",
+    title: "HomeWise Test Notification",
+    body: "Push notifications are working correctly.",
+    sourceId: "test",
+  });
+
+  return true;
+}
+
+function getApplianceReplacementDate(appliance: Appliance): Date | null {
+  if (appliance.condition === "Replace Soon") {
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  const install = parseDueDate(appliance.installDate);
+  if (!install || appliance.expectedLifeYears <= 0) return null;
+
+  const replace = new Date(install);
+  replace.setFullYear(replace.getFullYear() + appliance.expectedLifeYears);
+  return replace;
+}
+
+async function scheduleLocal(input: {
+  type: NotificationType;
+  title: string;
+  body: string;
+  sourceId?: string;
+  trigger: { date: Date } | { seconds: number };
+}): Promise<void> {
+  const icon =
+    input.type === "maintenance"
+      ? "🔧"
+      : input.type === "warranty"
+        ? "🛡️"
+        : input.type === "appliance"
+          ? "⚙️"
+          : input.type === "subscription"
+            ? "💳"
+            : "📢";
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `${icon} ${input.title}`,
+      body: input.body,
+      data: { type: input.type, id: input.sourceId ?? "" },
+      sound: true,
+    },
+    trigger: input.trigger as Notifications.NotificationTriggerInput,
+  });
+}
+
+export function parseDueDate(dateStr: string): Date | null {
   if (!dateStr || dateStr === "TBD" || dateStr === "Not yet") return null;
 
-  // Try direct parse
   const d = new Date(dateStr);
   if (!isNaN(d.getTime())) return d;
 
-  // Try "Month YYYY" format
   const monthYear = dateStr.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (monthYear) {
     const parsed = new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
     if (!isNaN(parsed.getTime())) return parsed;
   }
 
-  // Try "Month Day, YYYY"
   const full = dateStr.match(/^([A-Za-z]+)\s+(\d+),?\s+(\d{4})$/);
   if (full) {
     const parsed = new Date(`${full[1]} ${full[2]}, ${full[3]}`);
@@ -156,16 +355,34 @@ function parseDueDate(dateStr: string): Date | null {
 }
 
 export function setupNotificationListeners(
-  onNotification: (data: { type: string; id: string }) => void
+  onNavigate: (data: { type: string; id: string }) => void
 ) {
-  const sub1 = Notifications.addNotificationReceivedListener((notification) => {
-    const data = notification.request.content.data as any;
-    if (data?.type && data?.id) onNotification(data);
-  });
+  const handle = async (notification: Notifications.Notification) => {
+    const data = notification.request.content.data as {
+      type?: NotificationType;
+      id?: string;
+    };
+    const content = notification.request.content;
+
+    if (content.title && content.body && data?.type) {
+      await saveIncomingNotification({
+        type: data.type,
+        title: String(content.title).replace(/^[^\w]+\s*/, ""),
+        body: String(content.body),
+        sourceId: data.id,
+        broadcastId: data.type === "broadcast" ? data.id : undefined,
+      }).catch(() => {});
+    }
+
+    if (data?.type && data?.id) {
+      onNavigate({ type: data.type, id: data.id });
+    }
+  };
+
+  const sub1 = Notifications.addNotificationReceivedListener(handle);
 
   const sub2 = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as any;
-    if (data?.type && data?.id) onNotification(data);
+    handle(response.notification);
   });
 
   return () => {

@@ -5,28 +5,30 @@ import {
   Pressable,
   Alert,
   Switch,
-  Modal,
   TextInput,
   ActivityIndicator,
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
+import { KeyboardModal } from "@/components/KeyboardModal";
 import { createSupportTicket } from "@/services/supportService";
 import { router } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { LoadingView } from "@/components/LoadingView";
 import { colors, styles } from "@/constants/theme";
-import { TAB_SCROLL_PADDING } from "@/constants/layout";
+import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { cancelAllNotifications, requestNotificationPermission } from "@/lib/notifications";
 import { registerPushToken, unregisterPushTokens } from "@/services/pushService";
+import { OWNER_ADMIN_BADGE } from "@/lib/admin";
 
 export default function ProfileScreen() {
   const { selectedProperty, properties, getPropertyScore, resetDemoData } = useHomeWise();
-  const { user, isLoaded, signOut, updateProfile, updatePassword, isAdmin } = useAuth();
+  const { user, isLoaded, signOut, updateProfile, updatePassword, isAdmin, isOwner } = useAuth();
+  const tabScrollStyle = useTabScrollContentStyle();
 
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -174,7 +176,10 @@ export default function ProfileScreen() {
         text: "Sign Out",
         style: "destructive",
         onPress: async () => {
-          await signOut();
+          const result = await signOut();
+          if (result?.error) {
+            Alert.alert("Sign Out Failed", result.error);
+          }
         },
       },
     ]);
@@ -308,7 +313,45 @@ export default function ProfileScreen() {
         <Text style={styles.screenTitle}>Profile</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: TAB_SCROLL_PADDING }}>
+      <ScrollView contentContainerStyle={tabScrollStyle}>
+        {isOwner || isAdmin ? (
+          <Pressable
+            onPress={() => router.push("/admin")}
+            style={{
+              margin: 16,
+              marginBottom: 0,
+              backgroundColor: colors.primary,
+              borderRadius: 16,
+              padding: 18,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 14,
+            }}
+          >
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: "rgba(255,255,255,0.2)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="shield-checkmark" size={22} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "800" }}>
+                Owner Dashboard
+              </Text>
+              <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, marginTop: 2 }}>
+                Users, pricing, promo codes, subscriptions & reports
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+        ) : null}
+
         <View
           style={{
             padding: 24,
@@ -346,23 +389,21 @@ export default function ProfileScreen() {
             {user?.phone ? `Phone: ${user.phone}` : "Phone: Not added"}
           </Text>
 
-          <View
-            style={{
-              backgroundColor: colors.bgSection,
-              paddingHorizontal: 12,
-              paddingVertical: 5,
-              borderRadius: 999,
-              marginTop: 8,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>
-              {planLabel[user?.plan ?? "free"] ?? "Free Plan"}
-            </Text>
-          </View>
-
-          {isAdmin && (
+          {isOwner ? (
+            <View
+              style={{
+                backgroundColor: colors.gold,
+                paddingHorizontal: 12,
+                paddingVertical: 5,
+                borderRadius: 999,
+                marginTop: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>
+                OWNER ACCESS / {OWNER_ADMIN_BADGE}
+              </Text>
+            </View>
+          ) : isAdmin ? (
             <View
               style={{
                 backgroundColor: colors.primary,
@@ -372,11 +413,35 @@ export default function ProfileScreen() {
                 marginTop: 8,
               }}
             >
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
-                Super Admin
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>
+                SUPER ADMIN
               </Text>
             </View>
-          )}
+          ) : null}
+
+          <View
+            style={{
+              backgroundColor: isOwner ? colors.primary : colors.bgSection,
+              paddingHorizontal: 12,
+              paddingVertical: 5,
+              borderRadius: 999,
+              marginTop: 8,
+              borderWidth: isOwner ? 0 : 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text
+              style={{
+                color: isOwner ? "#fff" : colors.primary,
+                fontSize: 12,
+                fontWeight: "800",
+              }}
+            >
+              {isOwner || user?.ownerAccess
+                ? "Owner Access"
+                : planLabel[user?.plan ?? "free"] ?? "Free Plan"}
+            </Text>
+          </View>
 
           {score && (
             <View
@@ -436,9 +501,9 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {user?.plan === "free" && (
+        {user?.plan === "free" && !isOwner && !isAdmin && (
         <Pressable
-          onPress={() => router.push("/features/upgrade")}
+          onPress={() => router.push("/subscriptions")}
           style={{
             margin: 16,
             backgroundColor: colors.primary,
@@ -554,23 +619,23 @@ export default function ProfileScreen() {
                 onPress={() => router.push("/admin")}
               />
               <Row
+                icon="pricetag-outline"
+                label="Pricing Management"
+                onPress={() => router.push("/admin/pricing")}
+              />
+              <Row
                 icon="ticket-outline"
                 label="Promo Codes"
                 onPress={() => router.push("/admin/promo-codes")}
               />
               <Row
-                icon="pricetag-outline"
-                label="Pricing"
-                onPress={() => router.push("/admin/pricing")}
-              />
-              <Row
                 icon="people-outline"
-                label="Users"
+                label="User Management"
                 onPress={() => router.push("/admin/users")}
               />
               <Row
                 icon="card-outline"
-                label="Subscriptions"
+                label="Subscription Management"
                 onPress={() => router.push("/admin/subscriptions")}
               />
               <Row
@@ -580,7 +645,7 @@ export default function ProfileScreen() {
               />
               <Row
                 icon="bar-chart-outline"
-                label="Reports"
+                label="Reports & Analytics"
                 onPress={() => router.push("/admin/reports")}
               />
             </View>
@@ -850,9 +915,7 @@ export default function ProfileScreen() {
         </Text>
       </ScrollView>
 
-      <Modal visible={showEditProfile} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: 34 }]}>
+      <KeyboardModal visible={showEditProfile} onRequestClose={() => setShowEditProfile(false)}>
             <View style={styles.modalHandle} />
 
             <View style={styles.rowBetween}>
@@ -898,13 +961,9 @@ export default function ProfileScreen() {
             <Pressable style={styles.ghostButton} onPress={() => setShowEditProfile(false)}>
               <Text style={styles.ghostButtonText}>Cancel</Text>
             </Pressable>
-          </View>
-        </View>
-      </Modal>
+      </KeyboardModal>
 
-      <Modal visible={showChangePassword} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: 34 }]}>
+      <KeyboardModal visible={showChangePassword} onRequestClose={() => setShowChangePassword(false)}>
             <View style={styles.modalHandle} />
 
             <View style={styles.rowBetween}>
@@ -977,13 +1036,9 @@ export default function ProfileScreen() {
             <Pressable style={styles.ghostButton} onPress={() => setShowChangePassword(false)}>
               <Text style={styles.ghostButtonText}>Cancel</Text>
             </Pressable>
-          </View>
-        </View>
-      </Modal>
+      </KeyboardModal>
 
-      <Modal visible={showSupport} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { paddingBottom: 34 }]}>
+      <KeyboardModal visible={showSupport} onRequestClose={() => setShowSupport(false)}>
             <View style={styles.modalHandle} />
             <View style={styles.rowBetween}>
               <Text style={styles.modalTitle}>Support Ticket</Text>
@@ -1019,9 +1074,7 @@ export default function ProfileScreen() {
                 <Text style={styles.primaryButtonText}>Submit Ticket</Text>
               )}
             </Pressable>
-          </View>
-        </View>
-      </Modal>
+      </KeyboardModal>
     </Screen>
   );
 }

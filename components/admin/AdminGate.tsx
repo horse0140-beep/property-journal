@@ -10,6 +10,10 @@ type Props = {
   children: ReactNode;
 };
 
+/**
+ * Admin access requires user_roles.role === super_admin OR owner email.
+ * profiles.plan is not used for admin authorization.
+ */
 export function AdminGate({ children }: Props) {
   const { isLoaded, isAdmin } = useAuth();
 
@@ -44,7 +48,7 @@ export function AdminGate({ children }: Props) {
             Super Admin Required
           </Text>
           <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 8, lineHeight: 22 }}>
-            Only super_admin users can access the HomeWise Admin Dashboard.
+            Admin access requires a super_admin role in user_roles.
           </Text>
           <Pressable
             style={[styles.primaryButton, { marginTop: 24, alignSelf: "stretch" }]}

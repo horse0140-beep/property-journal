@@ -64,7 +64,8 @@ export default function BuyerReportsScreen() {
     );
   }
 
-  const pid = selectedProperty.id;
+  const property = selectedProperty;
+  const pid = property.id;
   const score = getPropertyScore(pid);
   const propMaint = maintenanceItems.filter((m) => m.propertyId === pid);
   const propRepairs = repairs.filter((r) => r.propertyId === pid);
@@ -76,7 +77,7 @@ export default function BuyerReportsScreen() {
     setGeneratingPDF(true);
     try {
       const result = await generateHomeHistoryPDF({
-        property: selectedProperty,
+        property,
         score,
         maintenanceItems: propMaint,
         repairs: propRepairs,
@@ -89,7 +90,7 @@ export default function BuyerReportsScreen() {
         Alert.alert("Error", result.error);
         return;
       }
-      const safeName = selectedProperty.address.replace(/[^a-zA-Z0-9]/g, "_");
+      const safeName = property.address.replace(/[^a-zA-Z0-9]/g, "_");
       await sharePDF(result.uri, `HomeWise_BuyerReport_${safeName}`);
     } catch (e: any) {
       Alert.alert("Error", e.message);
@@ -104,15 +105,15 @@ export default function BuyerReportsScreen() {
     try {
       const share = await createPropertyShare(user.id, {
         property_id: pid,
-        property_label: selectedProperty.address,
-        label: `Buyer Report — ${selectedProperty.address}`,
+        property_label: property.address,
+        label: `Buyer Report — ${property.address}`,
         include_personal_info: false,
         expires_at: new Date(Date.now() + 90 * 86400000).toISOString(),
         snapshot_json: {
           type: "buyer_report",
-          address: selectedProperty.address,
-          city: selectedProperty.city,
-          state: selectedProperty.state,
+          address: property.address,
+          city: property.city,
+          state: property.state,
           score: score.overall,
           maintenanceCount: propMaint.length,
           repairCount: propRepairs.length,
@@ -123,7 +124,7 @@ export default function BuyerReportsScreen() {
 
       const url = buildShareUrl(share.share_token);
       await Share.share({
-        message: `HomeWise Buyer Report for ${selectedProperty.address}\n\nView the complete home history (no personal info):\n${url}`,
+        message: `HomeWise Buyer Report for ${property.address}\n\nView the complete home history (no personal info):\n${url}`,
         title: "HomeWise Buyer Report",
       });
       await load();
@@ -141,7 +142,7 @@ export default function BuyerReportsScreen() {
         featureName="Home Buyer Reports"
         description="Generate professional CarFax-style reports and secure buyer links that build trust during a sale."
       >
-        <AdminHeader title="Home Buyer Reports" subtitle={selectedProperty.address} backTo="/features" />
+        <AdminHeader title="Home Buyer Reports" subtitle={property.address} backTo="/features" />
 
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
           <Card elevated>

@@ -1,15 +1,19 @@
+import { useState } from "react";
 import { Modal, View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { colors, styles } from "@/constants/theme";
 import { useUpgrade } from "@/context/UpgradeContext";
 import { useAuth } from "@/context/AuthContext";
+import { PromoCodeBox } from "@/components/PromoCodeBox";
 import {
+  displayPlanLabel,
   FEATURE_DESCRIPTIONS,
   FEATURE_LABELS,
   planLabel,
   requiredPlanForFeature,
 } from "@/lib/premium";
+import type { PlanKey } from "@/types/admin";
 
 const PREMIUM_INCLUDES = [
   "Unlimited properties",
@@ -21,17 +25,35 @@ const PREMIUM_INCLUDES = [
 
 export function UpgradeModal() {
   const { visible, activeFeature, hideUpgrade } = useUpgrade();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isOwner, updateProfile } = useAuth();
+  const [promoSuccess, setPromoSuccess] = useState("");
 
   if (!activeFeature) return null;
 
-  const requiredPlan = requiredPlanForFeature(activeFeature);
+  const requiredPlan = requiredPlanForFeature(activeFeature) as PlanKey;
   const featureName = FEATURE_LABELS[activeFeature];
   const description = FEATURE_DESCRIPTIONS[activeFeature];
 
   function handleUpgrade() {
     hideUpgrade();
     router.push("/features/upgrade");
+  }
+
+  async function handlePromoApplied(result: {
+    success: boolean;
+    grantedPlan?: PlanKey | null;
+    message?: string;
+  }) {
+    if (!result.success) {
+      setPromoSuccess("");
+      return;
+    }
+
+    setPromoSuccess(result.message ?? "Promo applied!");
+
+    if (result.grantedPlan && result.grantedPlan !== "free") {
+      await updateProfile({ plan: result.grantedPlan });
+    }
   }
 
   return (
@@ -116,9 +138,39 @@ export function UpgradeModal() {
             ))}
           </View>
 
-          <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", marginBottom: 16 }}>
-            Current plan: {planLabel(user?.plan)}
-            {isAdmin ? " (Admin — all features unlocked)" : ""}
+          {!isAdmin && !isOwner ? (
+            <PromoCodeBox
+              selectedPlan={requiredPlan}
+              onApplied={handlePromoApplied}
+              compact
+            />
+          ) : null}
+
+          {promoSuccess ? (
+            <Text
+              style={{
+                color: colors.success,
+                fontSize: 13,
+                textAlign: "center",
+                marginTop: 10,
+                fontWeight: "600",
+              }}
+            >
+              {promoSuccess}
+            </Text>
+          ) : null}
+
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 12,
+              textAlign: "center",
+              marginTop: 16,
+              marginBottom: 16,
+            }}
+          >
+            Current plan: {displayPlanLabel(user?.plan, { isAdmin, email: user?.email, isOwner })}
+            {isAdmin || isOwner ? " — all features unlocked" : ""}
           </Text>
 
           <Pressable style={styles.primaryButton} onPress={handleUpgrade}>

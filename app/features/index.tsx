@@ -6,7 +6,7 @@ import { Card } from "@/components/Card";
 import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
-import { hasFeatureAccess, isPremiumUser, planLabel, type PremiumFeature } from "@/lib/premium";
+import { displayPlanLabel, hasFeatureAccess, isPremiumUser, type PremiumFeature } from "@/lib/premium";
 
 type FeatureItem = {
   title: string;
@@ -82,9 +82,9 @@ const FEATURES: FeatureItem[] = [
 ];
 
 export default function PremiumFeaturesHub() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isOwner } = useAuth();
   const { requireFeature } = useUpgrade();
-  const premium = isPremiumUser(user?.plan) || isAdmin;
+  const premium = isPremiumUser(user?.plan, isAdmin, user?.email);
 
   function openFeature(f: FeatureItem) {
     if (!f.feature) {
@@ -96,7 +96,7 @@ export default function PremiumFeaturesHub() {
 
   function isLocked(f: FeatureItem): boolean {
     if (!f.feature) return false;
-    return !hasFeatureAccess(f.feature, user?.plan, isAdmin);
+    return !hasFeatureAccess(f.feature, user?.plan, isAdmin, user?.email);
   }
 
   return (
@@ -132,8 +132,8 @@ export default function PremiumFeaturesHub() {
             Premium Features
           </Text>
           <Text style={{ color: "rgba(255,255,255,0.85)", marginTop: 8 }}>
-            Current plan: {planLabel(user?.plan)} {premium ? "✓" : ""}
-            {isAdmin ? " · Admin" : ""}
+            Current plan: {displayPlanLabel(user?.plan, { isAdmin, email: user?.email, isOwner })}
+            {premium && !isAdmin && !isOwner ? " ✓" : ""}
           </Text>
         </View>
 

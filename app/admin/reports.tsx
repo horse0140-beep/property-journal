@@ -69,7 +69,7 @@ export default function AdminReportsScreen() {
   return (
     <AdminGate>
       <Screen noPad>
-        <AdminHeader title="Reports" subtitle="Business metrics and activity" />
+        <AdminHeader title="Reports & Analytics" subtitle="Business metrics, revenue and activity" />
 
         {loading ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

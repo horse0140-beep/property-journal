@@ -1,6 +1,7 @@
 import {
   View, Text, Pressable, ScrollView,
   TextInput, ActivityIndicator, Dimensions, SafeAreaView,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useState } from "react";
 import { router } from "expo-router";
@@ -87,7 +88,6 @@ export default function OnboardingScreen() {
       purchasePrice: "",
       estimatedValue: "",
       purchaseDate: "",
-      photoUri: undefined,
     });
     // Select the newly added property (it will be the last one added)
     // We select after a tick so state has updated
@@ -143,7 +143,16 @@ export default function OnboardingScreen() {
 
       {/* ── Add First Property ────────────────────────────────────── */}
       {step === "property" && (
-        <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
+        >
+        <ScrollView
+          contentContainerStyle={{ padding: 24, paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+        >
           <View style={{ marginBottom: 28, marginTop: 16 }}>
             <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 1 }}>STEP 1 OF 3</Text>
             <Text style={{ color: colors.textPrimary, fontSize: 26, fontWeight: "900", marginTop: 6 }}>Add Your Home</Text>
@@ -194,6 +203,7 @@ export default function OnboardingScreen() {
             <Text style={styles.ghostButtonText}>Skip for now</Text>
           </Pressable>
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
       {/* ── Features overview ─────────────────────────────────────── */}

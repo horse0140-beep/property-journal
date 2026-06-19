@@ -29,7 +29,7 @@ type SubscriptionContextValue = RevenueCatState & {
 const SubscriptionContext = createContext<SubscriptionContextValue | undefined>(undefined);
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
-  const { user, isSignedIn, isAdmin, updateProfile } = useAuth();
+  const { user, isSignedIn, isAdmin, isOwner, updateProfile } = useAuth();
   const [state, setState] = useState<RevenueCatState>({
     isConfigured: false,
     isPremium: false,
@@ -62,21 +62,21 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       const rc = await fetchRevenueCatState(user.plan);
 
-      if (rc.isConfigured && !isAdmin && rc.activePlan !== user.plan) {
+      if (rc.isConfigured && !isAdmin && !isOwner && rc.activePlan !== user.plan) {
         await updateProfile({ plan: rc.activePlan });
       }
 
       setState({
         ...rc,
-        isPremium: isAdmin || rc.isPremium,
-        activePlan: isAdmin ? user.plan : rc.activePlan,
+        isPremium: isAdmin || isOwner || rc.isPremium,
+        activePlan: isAdmin || isOwner ? user.plan : rc.activePlan,
       });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load subscriptions");
     } finally {
       setIsLoading(false);
     }
-  }, [isSignedIn, user, isAdmin, updateProfile]);
+  }, [isSignedIn, user, isAdmin, isOwner, updateProfile]);
 
   useEffect(() => {
     refresh();
@@ -84,7 +84,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const purchase = useCallback(
     async (packageId: string) => {
-      if (isAdmin) return {};
+      if (isAdmin || isOwner) return {};
 
       try {
         const plan = await purchasePackage(packageId);
@@ -97,11 +97,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         return { error: msg };
       }
     },
-    [refresh, updateProfile, isAdmin]
+    [refresh, updateProfile, isAdmin, isOwner]
   );
 
   const restore = useCallback(async () => {
-    if (isAdmin) return { plan: user?.plan };
+    if (isAdmin || isOwner) return { plan: user?.plan };
 
     try {
       const plan = await restorePurchases();
@@ -111,7 +111,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : "Restore failed" };
     }
-  }, [refresh, updateProfile, isAdmin, user?.plan]);
+  }, [refresh, updateProfile, isAdmin, isOwner, user?.plan]);
 
   const value = useMemo<SubscriptionContextValue>(
     () => ({

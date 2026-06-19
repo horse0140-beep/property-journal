@@ -194,7 +194,7 @@ export default function AdminSubscriptionsScreen() {
     <AdminGate>
       <Screen noPad>
         <AdminHeader
-          title="Subscriptions"
+          title="Subscription Management"
           subtitle={`${activeCount} active · ${subs.length} total`}
           rightAction={{ label: "+ Add", onPress: openCreate }}
         />

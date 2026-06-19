@@ -21,8 +21,8 @@ export function PremiumGate({ children, featureName, description, feature }: Pro
   const { user, isAdmin } = useAuth();
 
   const unlocked = feature
-    ? hasFeatureAccess(feature, user?.plan, isAdmin)
-    : hasFeatureAccess("property_sharing", user?.plan, isAdmin);
+    ? hasFeatureAccess(feature, user?.plan, isAdmin, user?.email)
+    : hasFeatureAccess("property_sharing", user?.plan, isAdmin, user?.email);
 
   if (unlocked) {
     return <>{children}</>;

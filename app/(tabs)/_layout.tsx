@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Platform } from "react-native";
 import { colors } from "@/constants/theme";
-import { tabBarHeight } from "@/constants/layout";
+import { tabBarHeight, TAB_BAR_MIN_BOTTOM_INSET } from "@/constants/layout";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -29,15 +29,15 @@ export default function TabsLayout() {
           marginTop: showLabels ? 4 : 8,
         },
         tabBarItemStyle: Platform.OS === "android"
-          ? { paddingVertical: 4, minWidth: 0 }
+          ? { paddingVertical: 6, minWidth: 0 }
           : undefined,
         tabBarStyle: {
           backgroundColor: colors.bgCard,
           borderTopColor: colors.border,
           borderTopWidth: 1,
           height: barHeight,
-          paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, Platform.OS === "android" ? 16 : 8),
+          paddingTop: Platform.OS === "android" ? 8 : 6,
+          paddingBottom: Math.max(insets.bottom, TAB_BAR_MIN_BOTTOM_INSET),
         },
       }}
     >

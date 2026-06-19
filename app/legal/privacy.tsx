@@ -13,8 +13,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Para({ children }: { children: React.ReactNode }) {
-  return <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginBottom: 8 }}>{children}</Text>;
+function Para({ children, style }: { children: React.ReactNode; style?: object }) {
+  return (
+    <Text style={[{ color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginBottom: 8 }, style]}>
+      {children}
+    </Text>
+  );
 }
 
 function Bullet({ text }: { text: string }) {

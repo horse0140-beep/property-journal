@@ -14,8 +14,6 @@ export async function loadAllUserData(userId: string) {
     documents,
     photos,
     contractors,
-    paintColors,
-    scoreMap,
   ] = await Promise.all([
     propertyService.fetchProperties(userId),
     maintenanceService.fetchMaintenanceItems(userId),
@@ -24,8 +22,14 @@ export async function loadAllUserData(userId: string) {
     vaultService.fetchAllVaultDocuments(userId),
     vaultService.fetchPhotos(userId),
     vaultService.fetchContractors(userId),
+  ]);
+
+  const propertyIds = properties.map((p) => p.id);
+
+  // Optional data — missing tables/columns must not block core screens.
+  const [scoreMap, paintColors] = await Promise.all([
+    scoreService.fetchPropertyScores(userId, propertyIds),
     vaultService.fetchPaintColors(userId),
-    scoreService.fetchPropertyScores(userId),
   ]);
 
   const selected = properties.find((p) => p.isSelected)?.id ?? properties[0]?.id ?? "";

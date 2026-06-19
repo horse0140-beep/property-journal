@@ -22,9 +22,9 @@ import { colors, styles } from "@/constants/theme";
 import {
   createPricingPlan,
   deletePricingPlan,
-  fetchPricingPlans,
+  getPricingPlans,
   updatePricingPlan,
-} from "@/services/pricingService";
+} from "@/services/adminService";
 import type { PlanKey, PricingPlan } from "@/types/admin";
 
 const PLAN_OPTIONS = [
@@ -56,11 +56,12 @@ export default function AdminPricingScreen() {
   const [editing, setEditing] = useState<PricingPlan | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError("");
-      setPlans(await fetchPricingPlans());
+      setPlans(await getPricingPlans());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load pricing");
     } finally {
@@ -69,7 +70,12 @@ export default function AdminPricingScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      load();
+    }, [load])
+  );
 
   function openCreate() {
     setEditing(null);
@@ -104,7 +110,10 @@ export default function AdminPricingScreen() {
       monthly_price: parseFloat(form.monthly_price) || 0,
       yearly_price: parseFloat(form.yearly_price) || 0,
       description: form.description.trim() || undefined,
-      features: form.features.split("\n").map((f) => f.trim()).filter(Boolean),
+      features: form.features
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean),
       is_active: form.is_active,
       sort_order: parseInt(form.sort_order, 10) || 0,
     };
@@ -118,10 +127,23 @@ export default function AdminPricingScreen() {
       }
       setModalOpen(false);
       await load();
+      Alert.alert("Saved", "Pricing plan updated successfully.");
     } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to save plan");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleActive(plan: PricingPlan) {
+    setTogglingId(plan.id);
+    try {
+      await updatePricingPlan(plan.id, { is_active: !plan.is_active });
+      await load();
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to update plan");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -143,12 +165,15 @@ export default function AdminPricingScreen() {
     ]);
   }
 
+  const tableMissing =
+    error.toLowerCase().includes("not found") || error.toLowerCase().includes("does not exist");
+
   return (
     <AdminGate>
       <Screen noPad>
         <AdminHeader
-          title="Pricing Plans"
-          subtitle={`${plans.length} plans configured`}
+          title="Pricing Management"
+          subtitle={`Free, Premium, Landlord & Realtor plans · ${plans.length} configured`}
           rightAction={{ label: "+ Add", onPress: openCreate }}
         />
 
@@ -160,16 +185,30 @@ export default function AdminPricingScreen() {
           <ScrollView
             contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+              />
             }
           >
-            {error ? <AdminErrorCard message={error} onRetry={load} /> : null}
+            {error ? (
+              <AdminErrorCard
+                message={error}
+                onRetry={load}
+                title={tableMissing ? "Pricing Table Missing" : "Error Loading Pricing"}
+              />
+            ) : null}
 
             {plans.length === 0 && !error ? (
               <View style={styles.emptyState}>
                 <Ionicons name="pricetag-outline" size={48} color={colors.textMuted} />
                 <Text style={styles.emptyStateTitle}>No pricing plans</Text>
-                <Text style={styles.emptyStateText}>Add your first subscription plan.</Text>
+                <Text style={styles.emptyStateText}>
+                  Add Free, Premium, Landlord, and Realtor plans.
+                </Text>
                 <Pressable style={styles.primaryButton} onPress={openCreate}>
                   <Text style={styles.primaryButtonText}>Create Plan</Text>
                 </Pressable>
@@ -182,13 +221,20 @@ export default function AdminPricingScreen() {
                       <Text style={styles.cardTitle}>{plan.name}</Text>
                       <AdminBadge label={plan.plan_key} variant="muted" />
                     </View>
-                    <AdminBadge
-                      label={plan.is_active ? "Active" : "Inactive"}
-                      variant={plan.is_active ? "success" : "muted"}
-                    />
+                    <Pressable
+                      onPress={() => toggleActive(plan)}
+                      disabled={togglingId === plan.id}
+                    >
+                      <AdminBadge
+                        label={plan.is_active ? "Active" : "Inactive"}
+                        variant={plan.is_active ? "success" : "muted"}
+                      />
+                    </Pressable>
                   </View>
 
-                  {plan.description ? <Text style={[styles.muted, { marginTop: 8 }]}>{plan.description}</Text> : null}
+                  {plan.description ? (
+                    <Text style={[styles.muted, { marginTop: 8 }]}>{plan.description}</Text>
+                  ) : null}
 
                   <View style={{ flexDirection: "row", gap: 24, marginTop: 14 }}>
                     <View>
@@ -213,14 +259,22 @@ export default function AdminPricingScreen() {
                   )}
 
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
-                    <Pressable onPress={() => openEdit(plan)} style={[styles.secondaryButton, { flex: 1, marginTop: 0 }]}>
-                      <Text style={styles.secondaryButtonText}>Edit</Text>
+                    <Pressable
+                      onPress={() => openEdit(plan)}
+                      style={[styles.secondaryButton, { flex: 1, marginTop: 0 }]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Edit Prices</Text>
                     </Pressable>
                     <Pressable
                       onPress={() => confirmDelete(plan)}
-                      style={[styles.secondaryButton, { flex: 1, marginTop: 0, borderColor: colors.danger }]}
+                      style={[
+                        styles.secondaryButton,
+                        { flex: 1, marginTop: 0, borderColor: colors.danger },
+                      ]}
                     >
-                      <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Delete</Text>
+                      <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>
+                        Delete
+                      </Text>
                     </Pressable>
                   </View>
                 </Card>
@@ -235,7 +289,7 @@ export default function AdminPricingScreen() {
           onClose={() => setModalOpen(false)}
           onSave={handleSave}
           saving={saving}
-          saveLabel={editing ? "Update Plan" : "Create Plan"}
+          saveLabel={editing ? "Save Prices" : "Create Plan"}
         >
           <AdminSelect
             label="Plan Key"
@@ -243,13 +297,51 @@ export default function AdminPricingScreen() {
             options={PLAN_OPTIONS}
             onChange={(v) => setForm((f) => ({ ...f, plan_key: v as PlanKey }))}
           />
-          <AdminField label="Display Name" value={form.name} onChangeText={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Premium" />
-          <AdminField label="Monthly Price ($)" value={form.monthly_price} onChangeText={(v) => setForm((f) => ({ ...f, monthly_price: v }))} keyboardType="decimal-pad" placeholder="4.99" />
-          <AdminField label="Yearly Price ($)" value={form.yearly_price} onChangeText={(v) => setForm((f) => ({ ...f, yearly_price: v }))} keyboardType="decimal-pad" placeholder="39.99" />
-          <AdminField label="Description" value={form.description} onChangeText={(v) => setForm((f) => ({ ...f, description: v }))} multiline placeholder="Plan description for marketing" />
-          <AdminField label="Features (one per line)" value={form.features} onChangeText={(v) => setForm((f) => ({ ...f, features: v }))} multiline placeholder="Unlimited properties" />
-          <AdminField label="Sort Order" value={form.sort_order} onChangeText={(v) => setForm((f) => ({ ...f, sort_order: v }))} keyboardType="numeric" />
-          <AdminSwitch label="Active" value={form.is_active} onValueChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />
+          <AdminField
+            label="Display Name"
+            value={form.name}
+            onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
+            placeholder="Premium"
+          />
+          <AdminField
+            label="Monthly Price ($)"
+            value={form.monthly_price}
+            onChangeText={(v) => setForm((f) => ({ ...f, monthly_price: v }))}
+            keyboardType="decimal-pad"
+            placeholder="4.99"
+          />
+          <AdminField
+            label="Yearly Price ($)"
+            value={form.yearly_price}
+            onChangeText={(v) => setForm((f) => ({ ...f, yearly_price: v }))}
+            keyboardType="decimal-pad"
+            placeholder="39.99"
+          />
+          <AdminField
+            label="Description"
+            value={form.description}
+            onChangeText={(v) => setForm((f) => ({ ...f, description: v }))}
+            multiline
+            placeholder="Plan description for marketing"
+          />
+          <AdminField
+            label="Features (one per line)"
+            value={form.features}
+            onChangeText={(v) => setForm((f) => ({ ...f, features: v }))}
+            multiline
+            placeholder="Unlimited properties"
+          />
+          <AdminField
+            label="Sort Order"
+            value={form.sort_order}
+            onChangeText={(v) => setForm((f) => ({ ...f, sort_order: v }))}
+            keyboardType="numeric"
+          />
+          <AdminSwitch
+            label="Active"
+            value={form.is_active}
+            onValueChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
+          />
         </AdminFormModal>
       </Screen>
     </AdminGate>

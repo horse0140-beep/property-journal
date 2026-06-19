@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
-import type { Document } from "@/data/demoData";
-import { rowToDocument } from "@/types/database";
+import type { Document, PaintColor } from "@/data/demoData";
+import { isMissingSchemaError } from "@/lib/dbErrors";
+import { rowToDocument, rowToPaint } from "@/types/database";
 
 type VaultTable = "documents" | "receipts" | "warranties";
 
@@ -206,27 +207,23 @@ export async function deleteContractor(userId: string, id: string) {
   if (error) throw new Error(error.message);
 }
 
-export async function fetchPaintColors(userId: string) {
+export async function fetchPaintColors(userId: string): Promise<PaintColor[]> {
   const { data, error } = await supabase
     .from("paint_colors")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isMissingSchemaError(error.message)) {
+      console.warn("fetchPaintColors:", error.message);
+    } else {
+      console.warn("fetchPaintColors:", error.message);
+    }
+    return [];
+  }
 
-  return (data ?? []).map((r) => ({
-    id: r.id as string,
-    propertyId: r.property_id as string,
-    room: r.room as string,
-    brand: (r.brand as string) ?? "",
-    colorName: (r.color_name as string) ?? "",
-    colorCode: (r.color_code as string) ?? "",
-    finish: (r.finish as string) ?? "",
-    hex: (r.hex as string) ?? "",
-    purchaseDate: (r.purchase_date as string) ?? "",
-    notes: (r.notes as string) ?? "",
-  }));
+  return (data ?? []).map((r) => rowToPaint(r));
 }
 
 export async function createPaintColor(userId: string, p: Record<string, unknown>) {

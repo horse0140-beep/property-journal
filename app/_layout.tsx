@@ -2,6 +2,7 @@ import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { HomeWiseProvider } from "@/context/HomeWiseContext";
@@ -108,27 +109,31 @@ function AppProviders({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <StatusBar style="dark" />
-      <AppProviders>
-        <AuthGate>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="auth/sign-in" options={{ animation: "fade" }} />
-            <Stack.Screen name="auth/sign-up" options={{ animation: "slide_from_right" }} />
-            <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
-            <Stack.Screen name="auth/reset-password" options={{ animation: "fade" }} />
-            <Stack.Screen name="onboarding/index" options={{ animation: "fade" }} />
-            <Stack.Screen name="legal/privacy" options={{ presentation: "modal" }} />
-            <Stack.Screen name="legal/terms" options={{ presentation: "modal" }} />
-            <Stack.Screen name="ai" options={{ animation: "slide_from_bottom" }} />
-            <Stack.Screen name="vault/photos" options={{ animation: "slide_from_right" }} />
-            <Stack.Screen name="admin" options={{ animation: "slide_from_right" }} />
-            <Stack.Screen name="features" options={{ animation: "slide_from_right" }} />
-            <Stack.Screen name="account" options={{ animation: "slide_from_right" }} />
-          </Stack>
-        </AuthGate>
-      </AppProviders>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <StatusBar style="dark" />
+        <AppProviders>
+          <AuthGate>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="auth/sign-in" options={{ animation: "fade" }} />
+              <Stack.Screen name="auth/sign-up" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="auth/reset-password" options={{ animation: "fade" }} />
+              <Stack.Screen name="onboarding/index" options={{ animation: "fade" }} />
+              <Stack.Screen name="legal/privacy" options={{ presentation: "modal" }} />
+              <Stack.Screen name="legal/terms" options={{ presentation: "modal" }} />
+              <Stack.Screen name="ai" options={{ animation: "slide_from_bottom" }} />
+              <Stack.Screen name="vault/photos" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="admin" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="features" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="account" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="subscriptions" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
+            </Stack>
+          </AuthGate>
+        </AppProviders>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

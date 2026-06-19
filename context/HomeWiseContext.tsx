@@ -225,8 +225,8 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
             appliances: data.appliances,
             documents: data.documents,
           });
-          await scoreService.upsertPropertyScore(userId, prop.id, score);
           setScoreMap((m) => ({ ...m, [prop.id]: score }));
+          void persistScore(prop.id, score);
         }
       }
     } catch (e: any) {
@@ -234,7 +234,7 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [userId, persistScore]);
 
   useEffect(() => {
     refreshData();
@@ -277,7 +277,7 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
           selectedPropertyId: id,
           properties: s.properties.map((p) => ({ ...p, isSelected: p.id === id })),
         }));
-        if (userId) propertyService.setSelectedProperty(userId, id).catch((e) => syncError("Select property", e));
+        if (userId) propertyService.setSelectedProperty(userId, id).catch(() => {});
       },
 
       addProperty: (p) => {
@@ -352,9 +352,19 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
       },
 
       completeMaintenanceItem: (id) => {
+        const item = state.maintenanceItems.find((m) => m.id === id);
+        const lastCompleted = new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        const nextDue =
+          item?.recurring && item.intervalDays
+            ? new Date(Date.now() + item.intervalDays * 86400000).toLocaleDateString("en-US", {
+                month: "short",
+                year: "numeric",
+              })
+            : item?.nextDue ?? "TBD";
         const updates = {
-          status: "Completed" as const,
-          lastCompleted: new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+          status: (item?.recurring ? "Upcoming" : "Completed") as const,
+          lastCompleted,
+          nextDue,
         };
         setState((s) => ({
           ...s,

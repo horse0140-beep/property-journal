@@ -3,7 +3,6 @@ import {
   Text,
   View,
   Pressable,
-  Modal,
   TextInput,
   Alert,
   ActivityIndicator,
@@ -12,12 +11,14 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import * as Sharing from "expo-sharing";
+import { KeyboardModal } from "@/components/KeyboardModal";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingView } from "@/components/LoadingView";
 import { ErrorCard } from "@/components/ErrorCard";
 import { colors, styles } from "@/constants/theme";
+import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
@@ -96,6 +97,7 @@ export default function VaultScreen() {
     useHomeWise();
   const { user } = useAuth();
   const { canAccess, showUpgrade } = useUpgrade();
+  const tabScrollStyle = useTabScrollContentStyle();
   const [tab, setTab] = useState<Tab>("all");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<Omit<Document, "id">>({ ...EMPTY_FORM });
@@ -331,7 +333,7 @@ export default function VaultScreen() {
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={tabScrollStyle}>
         {loadError ? <ErrorCard message={loadError} onRetry={refreshData} /> : null}
         <View style={{ height: 12 }} />
 
@@ -490,9 +492,7 @@ export default function VaultScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <ScrollView style={styles.modalSheet} keyboardShouldPersistTaps="handled">
+      <KeyboardModal visible={showAdd} onRequestClose={() => !busy && setShowAdd(false)}>
             <View style={styles.modalHandle} />
             <View style={styles.rowBetween}>
               <Text style={styles.modalTitle}>Add Document</Text>
@@ -686,9 +686,7 @@ export default function VaultScreen() {
               <Text style={styles.ghostButtonText}>Cancel</Text>
             </Pressable>
             <View style={{ height: 20 }} />
-          </ScrollView>
-        </View>
-      </Modal>
+      </KeyboardModal>
     </Screen>
   );
 }

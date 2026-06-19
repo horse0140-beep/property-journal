@@ -1,15 +1,17 @@
 import {
-  ScrollView, Text, View, Pressable, Modal,
+  ScrollView, Text, View, Pressable,
   TextInput, Alert, TouchableOpacity,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
+import { KeyboardModal } from "@/components/KeyboardModal";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingView } from "@/components/LoadingView";
 import { ErrorCard } from "@/components/ErrorCard";
 import { colors, styles } from "@/constants/theme";
+import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import type { MaintenanceItem, Repair } from "@/context/HomeWiseContext";
 
@@ -42,12 +44,22 @@ function conditionColor(c: string) {
   return colors.scorePoor;
 }
 
+function computeMaintenanceStatus(nextDue: string): MaintenanceItem["status"] {
+  if (!nextDue || nextDue === "TBD") return "Upcoming";
+  const parsed = Date.parse(nextDue);
+  if (Number.isNaN(parsed)) return "Upcoming";
+  const days = (parsed - Date.now()) / 86400000;
+  if (days < 0) return "Overdue";
+  if (days <= 30) return "Due Soon";
+  return "Upcoming";
+}
+
 export default function MaintenanceScreen() {
   const {
     selectedProperty,
     maintenanceItems, addMaintenanceItem, deleteMaintenanceItem, completeMaintenanceItem, updateMaintenanceItem,
     repairs, addRepair, deleteRepair,
-    appliances, addAppliance, deleteAppliance,
+    appliances, addAppliance, updateAppliance, deleteAppliance,
     paintColors, addPaintColor, deletePaintColor,
     contractors, addContractor, deleteContractor,
     isLoading,
@@ -57,6 +69,8 @@ export default function MaintenanceScreen() {
 
   const [tab, setTab] = useState<Tab>("schedule");
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const tabScrollStyle = useTabScrollContentStyle();
 
   // Maintenance form
   const [mTitle, setMTitle] = useState("");
@@ -106,6 +120,7 @@ export default function MaintenanceScreen() {
   const pid = selectedProperty?.id ?? "";
 
   function resetForms() {
+    setEditingId(null);
     setMTitle(""); setMNextDue(""); setMNotes(""); setMCategory("General"); setMPriority("medium");
     setRTitle(""); setRDate(""); setRCost(""); setRContractor(""); setRCategory("General"); setRNotes(""); setRWarranty("");
     setAName(""); setABrand(""); setAModel(""); setASerial(""); setAInstall(""); setAPrice(""); setAWarranty(""); setACondition("Good"); setANotes(""); setALife("12");
@@ -113,21 +128,96 @@ export default function MaintenanceScreen() {
     setCName(""); setCTrade("General Contractor"); setCPhone(""); setCEmail(""); setCNotes("");
   }
 
+  function openAddModal() {
+    resetForms();
+    setShowModal(true);
+  }
+
+  function openEditMaintenance(item: MaintenanceItem) {
+    setEditingId(item.id);
+    setMTitle(item.title);
+    setMCategory(item.category);
+    setMNextDue(item.nextDue);
+    setMNotes(item.notes ?? "");
+    setMPriority(item.priority);
+    setTab("schedule");
+    setShowModal(true);
+  }
+
+  function openEditAppliance(a: (typeof appliances)[number]) {
+    setEditingId(a.id);
+    setAName(a.name);
+    setABrand(a.brand ?? "");
+    setAModel(a.model ?? "");
+    setASerial(a.serial ?? "");
+    setAInstall(a.installDate ?? "");
+    setAPrice(a.purchasePrice ?? "");
+    setAWarranty(a.warrantyExpires ?? "");
+    setACondition(a.condition);
+    setANotes(a.notes ?? "");
+    setALife(String(a.expectedLifeYears ?? 12));
+    setTab("appliances");
+    setShowModal(true);
+  }
+
   function saveMaintenance() {
     if (!mTitle.trim()) { Alert.alert("Required", "Enter a maintenance item name."); return; }
-    addMaintenanceItem({ propertyId: pid, title: mTitle, category: mCategory, lastCompleted: "Not yet", nextDue: mNextDue || "TBD", status: "Upcoming", notes: mNotes, recurring: true, intervalDays: 180, priority: mPriority });
+    const status = computeMaintenanceStatus(mNextDue || "TBD");
+    if (editingId) {
+      updateMaintenanceItem(editingId, {
+        title: mTitle,
+        category: mCategory,
+        nextDue: mNextDue || "TBD",
+        notes: mNotes,
+        priority: mPriority,
+        status,
+      });
+    } else {
+      addMaintenanceItem({
+        propertyId: pid,
+        title: mTitle,
+        category: mCategory,
+        lastCompleted: "Not yet",
+        nextDue: mNextDue || "TBD",
+        status,
+        notes: mNotes,
+        recurring: true,
+        intervalDays: 180,
+        priority: mPriority,
+      });
+    }
+    resetForms(); setShowModal(false);
+  }
+
+  function saveAppliance() {
+    if (!aName.trim()) { Alert.alert("Required", "Enter appliance name."); return; }
+    const payload = {
+      propertyId: pid,
+      name: aName,
+      category: "Appliance" as const,
+      brand: aBrand,
+      model: aModel,
+      serial: aSerial,
+      installDate: aInstall,
+      purchasePrice: aPrice,
+      expectedLifeYears: parseInt(aLife, 10) || 12,
+      warrantyExpires: aWarranty,
+      lastService: "Not recorded",
+      nextService: "TBD",
+      condition: aCondition,
+      notes: aNotes,
+    };
+    if (editingId) {
+      updateAppliance(editingId, payload);
+    } else {
+      addAppliance(payload);
+    }
     resetForms(); setShowModal(false);
   }
 
   function saveRepair() {
     if (!rTitle.trim()) { Alert.alert("Required", "Enter a repair name."); return; }
     addRepair({ propertyId: pid, title: rTitle, date: rDate || "Date not set", cost: rCost || "0", contractor: rContractor || "Not listed", category: rCategory, notes: rNotes, photoUris: [], warrantyExpires: rWarranty || undefined });
-    resetForms(); setShowModal(false);
-  }
-
-  function saveAppliance() {
-    if (!aName.trim()) { Alert.alert("Required", "Enter appliance name."); return; }
-    addAppliance({ propertyId: pid, name: aName, category: "Appliance", brand: aBrand, model: aModel, serial: aSerial, installDate: aInstall, purchasePrice: aPrice, expectedLifeYears: parseInt(aLife) || 12, warrantyExpires: aWarranty, lastService: "Not recorded", nextService: "TBD", condition: aCondition, notes: aNotes });
     resetForms(); setShowModal(false);
   }
 
@@ -194,7 +284,7 @@ export default function MaintenanceScreen() {
             <Text style={styles.screenSubtitle}>{selectedProperty?.address ?? "Select a property"}</Text>
           </View>
           <Pressable
-            onPress={() => { resetForms(); setShowModal(true); }}
+            onPress={openAddModal}
             style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <Ionicons name="add" size={18} color="#fff" />
@@ -223,7 +313,7 @@ export default function MaintenanceScreen() {
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={tabScrollStyle}>
         {loadError ? <ErrorCard message={loadError} onRetry={refreshData} /> : null}
         <View style={{ height: 16 }} />
 
@@ -253,6 +343,13 @@ export default function MaintenanceScreen() {
                 </View>
                 <View style={[styles.divider, { marginTop: 12 }]} />
                 <View style={{ flexDirection: "row", gap: 10 }}>
+                  <Pressable
+                    onPress={() => openEditMaintenance(item)}
+                    style={{ flex: 1, backgroundColor: colors.bgSection, borderRadius: 10, paddingVertical: 10, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 6 }}
+                  >
+                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Edit</Text>
+                  </Pressable>
                   <Pressable
                     onPress={() => completeMaintenanceItem(item.id)}
                     style={{ flex: 1, backgroundColor: colors.successBg, borderRadius: 10, paddingVertical: 10, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 6 }}
@@ -328,12 +425,17 @@ export default function MaintenanceScreen() {
                     {a.purchasePrice ? <Text style={[styles.price, { textAlign: "right", marginTop: 6 }]}>${a.purchasePrice}</Text> : null}
                   </View>
                 </View>
-                <Pressable onPress={() => Alert.alert("Delete", `Remove "${a.name}"?`, [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: () => deleteAppliance(a.id) },
-                ])}>
-                  <Text style={styles.deleteText}>Delete</Text>
-                </Pressable>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
+                  <Pressable onPress={() => openEditAppliance(a)}>
+                    <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Edit</Text>
+                  </Pressable>
+                  <Pressable onPress={() => Alert.alert("Delete", `Remove "${a.name}"?`, [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => deleteAppliance(a.id) },
+                  ])}>
+                    <Text style={styles.deleteText}>Delete</Text>
+                  </Pressable>
+                </View>
               </Card>
             ))
           )
@@ -356,7 +458,10 @@ export default function MaintenanceScreen() {
                   </View>
                   <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.hex || "#ccc", borderWidth: 3, borderColor: colors.border }} />
                 </View>
-                <Pressable onPress={() => deletePaintColor(p.id)}>
+                <Pressable onPress={() => Alert.alert("Delete", `Remove "${p.room}"?`, [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Delete", style: "destructive", onPress: () => deletePaintColor(p.id) },
+                ])}>
                   <Text style={styles.deleteText}>Delete</Text>
                 </Pressable>
               </Card>
@@ -400,12 +505,10 @@ export default function MaintenanceScreen() {
       </ScrollView>
 
       {/* ── Add Modal ─────────────────────────────────────────── */}
-      <Modal visible={showModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <ScrollView style={styles.modalSheet} keyboardShouldPersistTaps="handled">
+      <KeyboardModal visible={showModal} onRequestClose={() => setShowModal(false)}>
             <View style={styles.modalHandle} />
             <View style={styles.rowBetween}>
-              <Text style={styles.modalTitle}>{addLabel[tab]}</Text>
+              <Text style={styles.modalTitle}>{editingId ? "Edit" : addLabel[tab]}</Text>
               <Pressable onPress={() => setShowModal(false)}>
                 <Ionicons name="close" size={24} color={colors.textMuted} />
               </Pressable>
@@ -571,15 +674,13 @@ export default function MaintenanceScreen() {
             </>}
 
             <Pressable style={styles.primaryButton} onPress={handleSave}>
-              <Text style={styles.primaryButtonText}>{addLabel[tab]}</Text>
+              <Text style={styles.primaryButtonText}>{editingId ? "Save Changes" : addLabel[tab]}</Text>
             </Pressable>
             <Pressable style={styles.ghostButton} onPress={() => setShowModal(false)}>
               <Text style={styles.ghostButtonText}>Cancel</Text>
             </Pressable>
             <View style={{ height: 20 }} />
-          </ScrollView>
-        </View>
-      </Modal>
+      </KeyboardModal>
     </Screen>
   );
 }

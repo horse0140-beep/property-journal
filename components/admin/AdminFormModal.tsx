@@ -35,7 +35,8 @@ export function AdminFormModal({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.modalOverlay}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
       >
         <View style={[styles.modalSheet, { maxHeight: "92%" }]}>
           <View style={styles.modalHandle} />
@@ -45,7 +46,12 @@ export function AdminFormModal({
               <Ionicons name="close" size={24} color={colors.textMuted} />
             </Pressable>
           </View>
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            automaticallyAdjustKeyboardInsets
+          >
             {children}
             <Pressable
               style={[styles.primaryButton, saving && { opacity: 0.7 }]}

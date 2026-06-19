@@ -1,4 +1,5 @@
 import type { UserProfile } from "@/context/AuthContext";
+import { adminPlanBadge, hasUnrestrictedAccess } from "@/lib/admin";
 
 export const PREMIUM_PLANS = ["premium", "landlord", "realtor"] as const;
 export const FREE_PROPERTY_LIMIT = 1;
@@ -50,8 +51,21 @@ export const FEATURE_DESCRIPTIONS: Record<PremiumFeature, string> = {
   contractor_portal: "Invite contractors to view maintenance and repair schedules.",
 };
 
-export function isPremiumUser(plan?: UserProfile["plan"] | null): boolean {
+export function isPremiumUser(
+  plan?: UserProfile["plan"] | null,
+  isAdmin = false,
+  email?: string | null
+): boolean {
+  if (hasUnrestrictedAccess(email, isAdmin)) return true;
   return !!plan && PREMIUM_PLANS.includes(plan as (typeof PREMIUM_PLANS)[number]);
+}
+
+export function hasFullPremiumAccess(
+  plan?: UserProfile["plan"] | null,
+  isAdmin = false,
+  email?: string | null
+): boolean {
+  return isPremiumUser(plan, isAdmin, email);
 }
 
 export function planLabel(plan?: UserProfile["plan"] | null): string {
@@ -73,18 +87,34 @@ export function requiredPlanForFeature(feature: PremiumFeature): UserProfile["pl
 export function hasFeatureAccess(
   feature: PremiumFeature,
   plan?: UserProfile["plan"] | null,
-  isAdmin = false
+  isAdmin = false,
+  email?: string | null
 ): boolean {
-  if (isAdmin) return true;
+  if (hasUnrestrictedAccess(email, isAdmin)) return true;
   if (!plan) return false;
   return FEATURE_PLANS[feature].includes(plan);
+}
+
+export function displayPlanLabel(
+  plan?: UserProfile["plan"] | null,
+  opts?: { isAdmin?: boolean; email?: string | null; isOwner?: boolean }
+): string {
+  if (opts?.isOwner) {
+    return adminPlanBadge(opts.email);
+  }
+  if (hasUnrestrictedAccess(opts?.email, opts?.isAdmin ?? false)) {
+    return adminPlanBadge(opts?.email);
+  }
+  return planLabel(plan);
 }
 
 export function canAddProperty(
   currentCount: number,
   plan?: UserProfile["plan"] | null,
-  isAdmin = false
+  isAdmin = false,
+  email?: string | null
 ): boolean {
-  if (isAdmin || isPremiumUser(plan)) return true;
+  if (hasUnrestrictedAccess(email, isAdmin)) return true;
+  if (isPremiumUser(plan, false, email)) return true;
   return currentCount < FREE_PROPERTY_LIMIT;
 }

@@ -9,81 +9,122 @@ import type {
   PhotoItem,
 } from "@/data/demoData";
 import type { PropertyScore } from "@/context/HomeWiseContext";
+import { isColumnMissing } from "@/lib/dbErrors";
+import {
+  setDateFieldNullable,
+  setNumericFieldNullable,
+  setTextField,
+  toDisplayString,
+  toNumericOrNull,
+} from "@/lib/dbSanitize";
+
+function parsePhotoUri(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function setIfPresent(
+  row: Record<string, unknown>,
+  column: string,
+  value: unknown
+) {
+  if (isColumnMissing(column)) return;
+  if (value === undefined || value === null || value === "") return;
+  row[column] = value;
+}
 
 export function rowToProperty(row: Record<string, unknown>): Property {
   return {
     id: row.id as string,
-    nickname: (row.nickname as string) ?? "",
+    nickname: toDisplayString(row.nickname),
     address: row.address as string,
-    city: (row.city as string) ?? "",
-    state: (row.state as string) ?? "",
-    zip: (row.zip as string) ?? "",
+    city: toDisplayString(row.city),
+    state: toDisplayString(row.state),
+    zip: toDisplayString(row.zip),
     type: (row.type as Property["type"]) ?? "primary",
-    yearBuilt: (row.year_built as string) ?? "",
-    squareFeet: (row.square_feet as string) ?? "",
-    bedrooms: (row.bedrooms as string) ?? "",
-    bathrooms: (row.bathrooms as string) ?? "",
-    purchasePrice: (row.purchase_price as string) ?? "",
-    estimatedValue: (row.estimated_value as string) ?? "",
-    purchaseDate: (row.purchase_date as string) ?? "",
-    photoUri: (row.photo_url as string) ?? undefined,
+    yearBuilt: toDisplayString(row.year_built),
+    squareFeet: toDisplayString(row.square_feet),
+    bedrooms: toDisplayString(row.bedrooms),
+    bathrooms: toDisplayString(row.bathrooms),
+    purchasePrice: toDisplayString(row.purchase_price),
+    estimatedValue: toDisplayString(row.estimated_value ?? row.value),
+    purchaseDate: toDisplayString(row.purchase_date),
+    photoUri: parsePhotoUri(row.photo_url),
     isSelected: Boolean(row.is_selected),
   };
 }
 
-export function propertyToRow(userId: string, p: Property) {
-  return {
+export function propertyToRow(userId: string, p: Property): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: p.id,
     user_id: userId,
-    nickname: p.nickname,
     address: p.address,
-    city: p.city,
-    state: p.state,
-    zip: p.zip,
     type: p.type,
-    year_built: p.yearBuilt,
-    square_feet: p.squareFeet,
-    bedrooms: p.bedrooms,
-    bathrooms: p.bathrooms,
-    purchase_price: p.purchasePrice,
-    estimated_value: p.estimatedValue,
-    purchase_date: p.purchaseDate,
-    photo_url: p.photoUri ?? null,
-    is_selected: p.isSelected,
   };
+
+  setTextField(row, "nickname", p.nickname);
+  setTextField(row, "city", p.city);
+  setTextField(row, "state", p.state);
+  setTextField(row, "zip", p.zip);
+  setTextField(row, "year_built", p.yearBuilt);
+  setNumericFieldNullable(row, "square_feet", p.squareFeet);
+  setNumericFieldNullable(row, "bedrooms", p.bedrooms);
+  setNumericFieldNullable(row, "bathrooms", p.bathrooms);
+  setNumericFieldNullable(row, "purchase_price", p.purchasePrice);
+  setNumericFieldNullable(row, "estimated_value", p.estimatedValue);
+  setNumericFieldNullable(row, "value", p.estimatedValue);
+  setDateFieldNullable(row, "purchase_date", p.purchaseDate);
+
+  const photo = parsePhotoUri(p.photoUri);
+  if (photo && !isColumnMissing("photo_url")) {
+    row.photo_url = photo;
+  }
+  if (p.isSelected && !isColumnMissing("is_selected")) {
+    row.is_selected = true;
+  }
+
+  return row;
 }
 
 export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem {
+  const interval = row.interval_days;
   return {
     id: row.id as string,
     propertyId: row.property_id as string,
     title: row.title as string,
-    category: (row.category as string) ?? "",
-    lastCompleted: (row.last_completed as string) ?? "",
-    nextDue: (row.next_due as string) ?? "",
+    category: toDisplayString(row.category),
+    lastCompleted: toDisplayString(row.last_completed),
+    nextDue: toDisplayString(row.next_due),
     status: (row.status as MaintenanceItem["status"]) ?? "Upcoming",
-    notes: (row.notes as string) ?? "",
+    notes: toDisplayString(row.notes),
     recurring: Boolean(row.recurring),
-    intervalDays: row.interval_days as number | undefined,
+    intervalDays: interval === null || interval === undefined ? undefined : Number(interval),
     priority: (row.priority as MaintenanceItem["priority"]) ?? "medium",
   };
 }
 
-export function maintenanceToRow(userId: string, m: MaintenanceItem) {
-  return {
+export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: m.id,
     user_id: userId,
     property_id: m.propertyId,
     title: m.title,
-    category: m.category,
-    last_completed: m.lastCompleted,
-    next_due: m.nextDue,
-    status: m.status,
-    notes: m.notes,
-    recurring: m.recurring,
-    interval_days: m.intervalDays ?? null,
-    priority: m.priority,
   };
+
+  setTextField(row, "category", m.category);
+  setDateFieldNullable(row, "last_completed", m.lastCompleted);
+  setDateFieldNullable(row, "next_due", m.nextDue);
+  setTextField(row, "status", m.status);
+  setTextField(row, "notes", m.notes);
+  setTextField(row, "priority", m.priority);
+  setNumericFieldNullable(row, "interval_days", m.intervalDays);
+
+  if (m.recurring === true && !isColumnMissing("recurring")) {
+    row.recurring = true;
+  }
+
+  return row;
 }
 
 export function rowToRepair(row: Record<string, unknown>): Repair {
@@ -91,79 +132,116 @@ export function rowToRepair(row: Record<string, unknown>): Repair {
     id: row.id as string,
     propertyId: row.property_id as string,
     title: row.title as string,
-    date: (row.date as string) ?? "",
-    cost: (row.cost as string) ?? "",
-    contractor: (row.contractor as string) ?? "",
-    category: (row.category as string) ?? "",
-    notes: (row.notes as string) ?? "",
+    date: toDisplayString(row.date),
+    cost: toDisplayString(row.cost),
+    contractor: toDisplayString(row.contractor),
+    category: toDisplayString(row.category),
+    notes: toDisplayString(row.notes),
     photoUris: (row.photo_urls as string[]) ?? [],
-    receiptUri: (row.receipt_url as string) ?? undefined,
-    warrantyExpires: (row.warranty_expires as string) ?? undefined,
+    receiptUri: parsePhotoUri(row.receipt_url),
+    warrantyExpires: toDisplayString(row.warranty_expires) || undefined,
   };
 }
 
-export function repairToRow(userId: string, r: Repair) {
-  return {
+export function repairToRow(userId: string, r: Repair): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: r.id,
     user_id: userId,
     property_id: r.propertyId,
     title: r.title,
-    date: r.date,
-    cost: r.cost,
-    contractor: r.contractor,
-    category: r.category,
-    notes: r.notes,
-    photo_urls: r.photoUris,
-    receipt_url: r.receiptUri ?? null,
-    warranty_expires: r.warrantyExpires ?? null,
   };
+
+  setTextField(row, "contractor", r.contractor);
+  setTextField(row, "category", r.category);
+  setTextField(row, "notes", r.notes);
+  setDateFieldNullable(row, "date", r.date);
+  setNumericFieldNullable(row, "cost", r.cost);
+  setDateFieldNullable(row, "warranty_expires", r.warrantyExpires);
+
+  if (r.photoUris !== undefined) {
+    row.photo_urls = r.photoUris;
+  }
+  if (r.receiptUri !== undefined) {
+    row.receipt_url = parsePhotoUri(r.receiptUri) ?? null;
+  }
+
+  return row;
 }
 
 export function rowToAppliance(row: Record<string, unknown>): Appliance {
+  const serial = toDisplayString(row.serial_number ?? row.serial);
+  const installDate = toDisplayString(row.purchase_date ?? row.install_date);
+  const warrantyExpires = toDisplayString(row.warranty_expiration ?? row.warranty_expires);
+
   return {
     id: row.id as string,
     propertyId: row.property_id as string,
     name: row.name as string,
-    category: (row.category as string) ?? "",
-    brand: (row.brand as string) ?? "",
-    model: (row.model as string) ?? "",
-    serial: (row.serial as string) ?? "",
-    installDate: (row.install_date as string) ?? "",
-    purchasePrice: (row.purchase_price as string) ?? "",
+    category: toDisplayString(row.category),
+    brand: toDisplayString(row.brand),
+    model: toDisplayString(row.model),
+    serial,
+    installDate,
+    purchasePrice: toDisplayString(row.purchase_price),
     expectedLifeYears: (row.expected_life_years as number) ?? 10,
-    warrantyExpires: (row.warranty_expires as string) ?? "",
-    lastService: (row.last_service as string) ?? "",
-    nextService: (row.next_service as string) ?? "",
+    warrantyExpires,
+    lastService: toDisplayString(row.last_service),
+    nextService: toDisplayString(row.next_service),
     condition: (row.condition as Appliance["condition"]) ?? "Good",
-    notes: (row.notes as string) ?? "",
-    photoUri: (row.photo_url as string) ?? undefined,
-    manualUri: (row.manual_url as string) ?? undefined,
-    receiptUri: (row.receipt_url as string) ?? undefined,
+    notes: toDisplayString(row.notes),
+    photoUri: parsePhotoUri(row.photo_url),
+    manualUri: parsePhotoUri(row.manual_url),
+    receiptUri: parsePhotoUri(row.receipt_url),
   };
 }
 
-export function applianceToRow(userId: string, a: Appliance) {
-  return {
+export function applianceToRow(userId: string, a: Appliance): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: a.id,
     user_id: userId,
     property_id: a.propertyId,
     name: a.name,
-    category: a.category,
-    brand: a.brand,
-    model: a.model,
-    serial: a.serial,
-    install_date: a.installDate,
-    purchase_price: a.purchasePrice,
-    expected_life_years: a.expectedLifeYears,
-    warranty_expires: a.warrantyExpires,
-    last_service: a.lastService,
-    next_service: a.nextService,
-    condition: a.condition,
-    notes: a.notes,
-    photo_url: a.photoUri ?? null,
-    manual_url: a.manualUri ?? null,
-    receipt_url: a.receiptUri ?? null,
   };
+
+  setTextField(row, "category", a.category || "Appliance");
+  setTextField(row, "brand", a.brand);
+  setTextField(row, "model", a.model);
+
+  if (a.serial) {
+    setIfPresent(row, "serial", a.serial);
+    setIfPresent(row, "serial_number", a.serial);
+  }
+
+  setDateFieldNullable(row, "install_date", a.installDate);
+  setDateFieldNullable(row, "purchase_date", a.installDate);
+  setNumericFieldNullable(row, "purchase_price", a.purchasePrice);
+
+  const lifeYears = toNumericOrNull(a.expectedLifeYears);
+  if (lifeYears !== null) {
+    setIfPresent(row, "expected_life_years", lifeYears);
+  }
+
+  setDateFieldNullable(row, "warranty_expires", a.warrantyExpires);
+  setDateFieldNullable(row, "warranty_expiration", a.warrantyExpires);
+  setTextField(row, "last_service", a.lastService);
+  setTextField(row, "next_service", a.nextService);
+  setTextField(row, "condition", a.condition || "Good");
+  setTextField(row, "notes", a.notes);
+
+  const photo = parsePhotoUri(a.photoUri);
+  if (photo) setIfPresent(row, "photo_url", photo);
+
+  const manual = parsePhotoUri(a.manualUri);
+  if (manual) setIfPresent(row, "manual_url", manual);
+
+  const receipt = parsePhotoUri(a.receiptUri);
+  if (receipt) setIfPresent(row, "receipt_url", receipt);
+
+  if (!isColumnMissing("is_active")) {
+    row.is_active = true;
+  }
+
+  return row;
 }
 
 export function rowToDocument(row: Record<string, unknown>, categoryOverride?: Document["category"]): Document {

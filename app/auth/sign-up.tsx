@@ -45,8 +45,20 @@ export default function SignUpScreen() {
   }
 
   function Field({
-    label, value, onChange, placeholder, secure, keyboardType, autoComplete, textContentType, error, hint,
-  }: any) {
+    label, value, onChange, placeholder, secure, keyboardType, autoComplete, textContentType, error, hint, errorKey,
+  }: {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+    secure?: boolean;
+    keyboardType?: "default" | "email-address";
+    autoComplete?: string;
+    textContentType?: string;
+    error?: string;
+    hint?: string;
+    errorKey: string;
+  }) {
     const [show, setShow] = useState(false);
     return (
       <View style={{ marginBottom: 4 }}>
@@ -57,7 +69,7 @@ export default function SignUpScreen() {
             placeholder={placeholder}
             placeholderTextColor={colors.textMuted}
             value={value}
-            onChangeText={(v) => { onChange(v); setErrors((e) => ({ ...e, [label.toLowerCase()]: undefined })); }}
+            onChangeText={(v) => { onChange(v); setErrors((e) => ({ ...e, [errorKey]: undefined, general: undefined })); }}
             secureTextEntry={secure && !show}
             keyboardType={keyboardType ?? "default"}
             autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
@@ -80,11 +92,13 @@ export default function SignUpScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 4 : 0}
     >
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: "center" }}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
       >
         {/* Back */}
@@ -104,10 +118,10 @@ export default function SignUpScreen() {
             </View>
           )}
 
-          <Field label="Full Name" value={name} onChange={setName} placeholder="Jane Smith" error={errors.name} autoComplete="name" textContentType="name" />
-          <Field label="Email Address" value={email} onChange={setEmail} placeholder="you@example.com" keyboardType="email-address" error={errors.email} autoComplete="email" textContentType="emailAddress" />
-          <Field label="Password" value={password} onChange={setPassword} placeholder="Min. 8 characters" secure error={errors.password} hint={!errors.password ? "At least 8 characters" : undefined} autoComplete="new-password" textContentType="newPassword" />
-          <Field label="Confirm Password" value={confirm} onChange={setConfirm} placeholder="Repeat your password" secure error={errors.confirm} autoComplete="new-password" textContentType="newPassword" />
+          <Field label="Full Name" errorKey="name" value={name} onChange={setName} placeholder="Jane Smith" error={errors.name} autoComplete="name" textContentType="name" />
+          <Field label="Email Address" errorKey="email" value={email} onChange={setEmail} placeholder="you@example.com" keyboardType="email-address" error={errors.email} autoComplete="email" textContentType="emailAddress" />
+          <Field label="Password" errorKey="password" value={password} onChange={setPassword} placeholder="Min. 8 characters" secure error={errors.password} hint={!errors.password ? "At least 8 characters" : undefined} autoComplete="new-password" textContentType="newPassword" />
+          <Field label="Confirm Password" errorKey="confirm" value={confirm} onChange={setConfirm} placeholder="Repeat your password" secure error={errors.confirm} autoComplete="new-password" textContentType="newPassword" />
 
           {/* Terms */}
           <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 16, lineHeight: 18 }}>

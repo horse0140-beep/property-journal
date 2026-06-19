@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, styles } from "@/constants/theme";
-import { TAB_SCROLL_PADDING } from "@/constants/layout";
+import { useTabScrollContentStyle } from "@/constants/layout";
 import { LoadingView } from "@/components/LoadingView";
 import { ErrorCard } from "@/components/ErrorCard";
 import { useHomeWise } from "@/context/HomeWiseContext";
@@ -66,9 +66,10 @@ export default function HomeScreen() {
     loadError,
     refreshData,
   } = useHomeWise();
-  const { user } = useAuth();
+  const { user, isAdmin, isOwner } = useAuth();
   const { requireFeature } = useUpgrade();
   const insets = useSafeAreaInsets();
+  const tabScrollStyle = useTabScrollContentStyle();
 
   // Schedule notifications whenever maintenance / doc data changes
   useEffect(() => {
@@ -95,20 +96,45 @@ export default function HomeScreen() {
 
   if (!selectedProperty) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center", padding: 32, paddingBottom: TAB_SCROLL_PADDING }}>
-        <Ionicons name="home-outline" size={60} color={colors.textMuted} />
-        <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 16, textAlign: "center" }}>
-          No property added yet
-        </Text>
-        <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 8, textAlign: "center" }}>
-          Add your home to start tracking its health.
-        </Text>
-        <Pressable
-          style={[styles.primaryButton, { marginTop: 24, paddingHorizontal: 32 }]}
-          onPress={() => router.push("/(tabs)/properties")}
-        >
-          <Text style={styles.primaryButtonText}>Add Your Home</Text>
-        </Pressable>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        {isOwner ? (
+          <Pressable
+            onPress={() => router.push("/admin")}
+            style={{
+              margin: 16,
+              backgroundColor: colors.primary,
+              borderRadius: 16,
+              padding: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Ionicons name="shield-checkmark" size={22} color="#fff" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Admin Dashboard</Text>
+              <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 12, marginTop: 2 }}>
+                Manage users, pricing, promo codes & more
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+        ) : null}
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32 }}>
+          <Ionicons name="home-outline" size={60} color={colors.textMuted} />
+          <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 16, textAlign: "center" }}>
+            No property added yet
+          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 8, textAlign: "center" }}>
+            Add your home to start tracking its health.
+          </Text>
+          <Pressable
+            style={[styles.primaryButton, { marginTop: 24, paddingHorizontal: 32 }]}
+            onPress={() => router.push("/(tabs)/properties")}
+          >
+            <Text style={styles.primaryButtonText}>Add Your Home</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -205,6 +231,23 @@ export default function HomeScreen() {
           </View>
         </View>
         <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+          {isAdmin ? (
+            <Pressable
+              onPress={() => router.push("/admin")}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                backgroundColor: colors.bgSection,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+              }}
+            >
+              <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
+              <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "800" }}>Admin</Text>
+            </Pressable>
+          ) : null}
           <Pressable style={{ position: "relative" }}>
             <Ionicons name="notifications-outline" size={24} color={colors.textPrimary} />
             {alerts.length > 0 && (
@@ -227,7 +270,7 @@ export default function HomeScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: TAB_SCROLL_PADDING }}
+        contentContainerStyle={tabScrollStyle}
         refreshControl={
           <RefreshControl refreshing={false} onRefresh={refreshData} tintColor={colors.primary} />
         }
@@ -236,6 +279,42 @@ export default function HomeScreen() {
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <ErrorCard message={loadError} onRetry={refreshData} />
           </View>
+        ) : null}
+
+        {isOwner ? (
+          <Pressable
+            onPress={() => router.push("/admin")}
+            style={{
+              margin: 16,
+              marginBottom: 0,
+              backgroundColor: colors.primary,
+              borderRadius: 16,
+              padding: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: "rgba(255,255,255,0.2)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="shield-checkmark" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Admin Dashboard</Text>
+              <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 12, marginTop: 2 }}>
+                Promo codes, pricing, users, subscriptions, support & reports
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" />
+          </Pressable>
         ) : null}
 
         {/* ── Property hero card ───────────────────────────────── */}

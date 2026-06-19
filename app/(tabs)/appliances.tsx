@@ -13,6 +13,7 @@ import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { colors, styles } from "@/constants/theme";
+import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 
 export default function AppliancesScreen() {
@@ -24,6 +25,7 @@ export default function AppliancesScreen() {
     refreshData,
     deleteAppliance,
   } = useHomeWise();
+  const tabScrollStyle = useTabScrollContentStyle();
 
   useEffect(() => {
     if (loadError) {
@@ -78,7 +80,7 @@ export default function AppliancesScreen() {
         <Text style={styles.screenSubtitle}>{selectedProperty.address}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}>
+      <ScrollView contentContainerStyle={tabScrollStyle}>
         <Pressable
           style={[styles.primaryButton, { marginBottom: 16 }]}
           onPress={() => router.push("/(tabs)/maintenance")}

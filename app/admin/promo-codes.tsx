@@ -23,15 +23,18 @@ import { colors, styles } from "@/constants/theme";
 import {
   createPromoCode,
   deletePromoCode,
-  fetchPromoCodes,
+  disablePromoCode,
+  getPromoCodes,
   updatePromoCode,
-} from "@/services/promoService";
+} from "@/services/adminService";
 import type { DiscountType, PlanKey, PromoCode } from "@/types/admin";
 
 const DISCOUNT_OPTIONS: { label: string; value: DiscountType }[] = [
   { label: "Percent", value: "percent" },
   { label: "Fixed $", value: "fixed" },
   { label: "Free Trial", value: "free_trial" },
+  { label: "Lifetime Access", value: "lifetime_access" },
+  { label: "Owner Grant", value: "owner_grant" },
 ];
 
 const SCOPE_OPTIONS: { label: string; value: PlanKey | "all" }[] = [
@@ -58,7 +61,10 @@ function emptyForm() {
 function formatDiscount(promo: PromoCode) {
   if (promo.discount_type === "percent") return `${promo.discount_value}% off`;
   if (promo.discount_type === "fixed") return `$${promo.discount_value} off`;
-  return `${promo.discount_value} day trial`;
+  if (promo.discount_type === "free_trial") return `${promo.discount_value} day trial`;
+  if (promo.discount_type === "lifetime_access") return `Lifetime ${promo.plan_scope} access`;
+  if (promo.discount_type === "owner_grant") return "Owner access grant";
+  return `${promo.discount_value}`;
 }
 
 export default function AdminPromoCodesScreen() {
@@ -71,11 +77,12 @@ export default function AdminPromoCodesScreen() {
   const [editing, setEditing] = useState<PromoCode | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
+  const [disablingId, setDisablingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError("");
-      setPromos(await fetchPromoCodes());
+      setPromos(await getPromoCodes());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load promo codes");
     } finally {
@@ -84,7 +91,12 @@ export default function AdminPromoCodesScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      load();
+    }, [load])
+  );
 
   function openCreate() {
     setEditing(null);
@@ -133,6 +145,7 @@ export default function AdminPromoCodesScreen() {
       }
       setModalOpen(false);
       await load();
+      Alert.alert("Saved", "Promo code saved successfully.");
     } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to save promo code");
     } finally {
@@ -140,8 +153,29 @@ export default function AdminPromoCodesScreen() {
     }
   }
 
+  async function handleDisable(promo: PromoCode) {
+    Alert.alert("Disable Promo", `Disable code "${promo.code}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disable",
+        style: "destructive",
+        onPress: async () => {
+          setDisablingId(promo.id);
+          try {
+            await disablePromoCode(promo.id);
+            await load();
+          } catch (e: unknown) {
+            Alert.alert("Error", e instanceof Error ? e.message : "Failed to disable promo");
+          } finally {
+            setDisablingId(null);
+          }
+        },
+      },
+    ]);
+  }
+
   function confirmDelete(promo: PromoCode) {
-    Alert.alert("Delete Promo", `Remove code "${promo.code}"?`, [
+    Alert.alert("Delete Promo", `Permanently remove code "${promo.code}"?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -169,14 +203,16 @@ export default function AdminPromoCodesScreen() {
   );
 
   const activeCount = promos.filter((p) => p.is_active).length;
+  const tableMissing =
+    error.toLowerCase().includes("not found") || error.toLowerCase().includes("does not exist");
 
   return (
     <AdminGate>
       <Screen noPad>
         <AdminHeader
-          title="Promo Codes"
+          title="Promo Code Manager"
           subtitle={`${activeCount} active · ${promos.length} total`}
-          rightAction={{ label: "+ Add", onPress: openCreate }}
+          rightAction={{ label: "+ Create", onPress: openCreate }}
         />
 
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
@@ -207,10 +243,22 @@ export default function AdminPromoCodesScreen() {
           <ScrollView
             contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+              />
             }
           >
-            {error ? <AdminErrorCard message={error} onRetry={load} /> : null}
+            {error ? (
+              <AdminErrorCard
+                message={error}
+                onRetry={load}
+                title={tableMissing ? "Promo Codes Table Missing" : "Error Loading Promos"}
+              />
+            ) : null}
 
             {filtered.length === 0 && !error ? (
               <View style={styles.emptyState}>
@@ -230,12 +278,15 @@ export default function AdminPromoCodesScreen() {
                 <Card key={promo.id}>
                   <View style={styles.rowBetween}>
                     <Text style={[styles.cardTitle, { letterSpacing: 1 }]}>{promo.code}</Text>
-                    <AdminBadge label={promo.is_active ? "Active" : "Inactive"} variant={promo.is_active ? "success" : "muted"} />
+                    <AdminBadge
+                      label={promo.is_active ? "Active" : "Disabled"}
+                      variant={promo.is_active ? "success" : "muted"}
+                    />
                   </View>
                   <Text style={styles.muted}>{promo.description || "No description"}</Text>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <AdminBadge label={formatDiscount(promo)} variant="info" />
-                    <AdminBadge label={promo.plan_scope} variant="primary" />
+                    <AdminBadge label={`Applies: ${promo.plan_scope}`} variant="primary" />
                     <AdminBadge
                       label={`${promo.used_count}${promo.max_uses ? `/${promo.max_uses}` : ""} used`}
                       variant="muted"
@@ -246,15 +297,37 @@ export default function AdminPromoCodesScreen() {
                       Expires {new Date(promo.expires_at).toLocaleDateString()}
                     </Text>
                   )}
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
-                    <Pressable onPress={() => openEdit(promo)} style={[styles.secondaryButton, { flex: 1, marginTop: 0 }]}>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                    <Pressable
+                      onPress={() => openEdit(promo)}
+                      style={[styles.secondaryButton, { flex: 1, minWidth: "30%", marginTop: 0 }]}
+                    >
                       <Text style={styles.secondaryButtonText}>Edit</Text>
                     </Pressable>
+                    {promo.is_active && (
+                      <Pressable
+                        onPress={() => handleDisable(promo)}
+                        disabled={disablingId === promo.id}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "30%", marginTop: 0, borderColor: colors.warning },
+                        ]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: colors.warning }]}>
+                          Disable
+                        </Text>
+                      </Pressable>
+                    )}
                     <Pressable
                       onPress={() => confirmDelete(promo)}
-                      style={[styles.secondaryButton, { flex: 1, marginTop: 0, borderColor: colors.danger }]}
+                      style={[
+                        styles.secondaryButton,
+                        { flex: 1, minWidth: "30%", marginTop: 0, borderColor: colors.danger },
+                      ]}
                     >
-                      <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Delete</Text>
+                      <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>
+                        Delete
+                      </Text>
                     </Pressable>
                   </View>
                 </Card>
@@ -265,7 +338,7 @@ export default function AdminPromoCodesScreen() {
 
         <AdminFormModal
           visible={modalOpen}
-          title={editing ? "Edit Promo Code" : "New Promo Code"}
+          title={editing ? "Edit Promo Code" : "Create Promo Code"}
           onClose={() => setModalOpen(false)}
           onSave={handleSave}
           saving={saving}
@@ -291,32 +364,36 @@ export default function AdminPromoCodesScreen() {
             onChange={(v) => setForm((f) => ({ ...f, discount_type: v as DiscountType }))}
           />
           <AdminField
-            label="Discount Value"
+            label="Discount Amount"
             value={form.discount_value}
             onChangeText={(v) => setForm((f) => ({ ...f, discount_value: v }))}
             keyboardType="decimal-pad"
             placeholder="25"
           />
           <AdminSelect
-            label="Plan Scope"
+            label="Applies To Plan"
             value={form.plan_scope}
             options={SCOPE_OPTIONS}
             onChange={(v) => setForm((f) => ({ ...f, plan_scope: v as PlanKey | "all" }))}
           />
           <AdminField
-            label="Max Uses (blank = unlimited)"
+            label="Usage Limit (blank = unlimited)"
             value={form.max_uses}
             onChangeText={(v) => setForm((f) => ({ ...f, max_uses: v }))}
             keyboardType="numeric"
           />
           <AdminField
-            label="Expires (YYYY-MM-DD)"
+            label="Expiration Date (YYYY-MM-DD)"
             value={form.expires_at}
             onChangeText={(v) => setForm((f) => ({ ...f, expires_at: v }))}
             placeholder="2026-12-31"
             autoCapitalize="none"
           />
-          <AdminSwitch label="Active" value={form.is_active} onValueChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />
+          <AdminSwitch
+            label="Active"
+            value={form.is_active}
+            onValueChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
+          />
         </AdminFormModal>
       </Screen>
     </AdminGate>

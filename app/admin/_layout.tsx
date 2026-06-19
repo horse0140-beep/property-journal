@@ -4,6 +4,7 @@ import { View, ActivityIndicator } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { colors } from "@/constants/theme";
 
+/** Guarded by user_roles super_admin or owner email bypass. */
 export default function AdminLayout() {
   const { isLoaded, isAdmin } = useAuth();
 
@@ -34,6 +35,8 @@ export default function AdminLayout() {
       <Stack.Screen name="subscriptions" />
       <Stack.Screen name="support" />
       <Stack.Screen name="reports" />
+      <Stack.Screen name="launch-readiness" />
+      <Stack.Screen name="broadcast" />
     </Stack>
   );
 }

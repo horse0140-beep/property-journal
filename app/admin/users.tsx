@@ -21,10 +21,15 @@ import { AdminSelect } from "@/components/admin/AdminField";
 import { AdminErrorCard } from "@/components/admin/AdminErrorCard";
 import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
+import { SUPER_ADMIN_ROLE } from "@/lib/admin";
 import {
   deleteUser,
-  fetchAdminUsers,
-  setUserRole,
+  getUsers,
+  grantOwnerAccess,
+  grantPlanAccess,
+  grantUserRole,
+  revokeAccess,
+  revokeUserRole,
   updateUserPlan,
 } from "@/services/adminService";
 import type { AdminUser, PlanKey, UserRole } from "@/types/admin";
@@ -54,11 +59,12 @@ export default function AdminUsersScreen() {
   const [editPlan, setEditPlan] = useState<PlanKey>("free");
   const [editRole, setEditRole] = useState<UserRole>("user");
   const [saving, setSaving] = useState(false);
+  const [actionUserId, setActionUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError("");
-      setUsers(await fetchAdminUsers());
+      setUsers(await getUsers());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load users");
     } finally {
@@ -80,12 +86,29 @@ export default function AdminUsersScreen() {
     setEditRole(u.role ?? "user");
   }
 
+  async function runAction(userId: string, action: () => Promise<void>, successMsg: string) {
+    setActionUserId(userId);
+    try {
+      await action();
+      await load();
+      Alert.alert("Success", successMsg);
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setActionUserId(null);
+    }
+  }
+
   async function handleSave() {
     if (!editing) return;
     setSaving(true);
     try {
       await updateUserPlan(editing.id, editPlan);
-      await setUserRole(editing.id, editRole);
+      if (editRole === "user") {
+        await revokeUserRole(editing.id);
+      } else {
+        await grantUserRole(editing.id, editRole);
+      }
       setEditing(null);
       await load();
       Alert.alert("Saved", `${editing.email} updated successfully.`);
@@ -94,6 +117,22 @@ export default function AdminUsersScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function confirmRevoke(u: AdminUser) {
+    if (u.id === currentUser?.id) {
+      Alert.alert("Cannot Revoke", "You cannot revoke your own access.");
+      return;
+    }
+    Alert.alert("Revoke Access", `Remove all access from ${u.email}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Revoke",
+        style: "destructive",
+        onPress: () =>
+          runAction(u.id, () => revokeAccess(u.id, u.email), `${u.email} access revoked.`),
+      },
+    ]);
   }
 
   function confirmDelete(u: AdminUser) {
@@ -126,13 +165,17 @@ export default function AdminUsersScreen() {
       u.name.toLowerCase().includes(q) ||
       (u.phone ?? "").includes(q) ||
       (u.role ?? "").includes(q) ||
-      u.plan.includes(q)
+      u.plan.includes(q) ||
+      (u.has_owner_access && "owner".includes(q))
   );
 
   return (
     <AdminGate>
       <Screen noPad>
-        <AdminHeader title="Users" subtitle={`${users.length} registered accounts`} />
+        <AdminHeader
+          title="User Management"
+          subtitle={`Search, grant access & manage roles · ${users.length} accounts`}
+        />
 
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <View style={{ position: "relative" }}>
@@ -165,7 +208,13 @@ export default function AdminUsersScreen() {
           <ScrollView
             contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+              />
             }
           >
             {error ? <AdminErrorCard message={error} onRetry={load} /> : null}
@@ -179,62 +228,177 @@ export default function AdminUsersScreen() {
                 </Text>
               </View>
             ) : (
-              filtered.map((u) => (
-                <Card key={u.id}>
-                  <View style={styles.rowBetween}>
-                    <View style={{ flexDirection: "row", gap: 12, flex: 1 }}>
-                      <View
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 22,
-                          backgroundColor: colors.bgSection,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Text style={{ color: colors.primary, fontWeight: "900", fontSize: 16 }}>
-                          {u.name.charAt(0).toUpperCase()}
-                        </Text>
+              filtered.map((u) => {
+                const busy = actionUserId === u.id;
+                return (
+                  <Card key={u.id}>
+                    <View style={styles.rowBetween}>
+                      <View style={{ flexDirection: "row", gap: 12, flex: 1 }}>
+                        <View
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            backgroundColor: colors.bgSection,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Text style={{ color: colors.primary, fontWeight: "900", fontSize: 16 }}>
+                            {u.name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cardTitle}>{u.name}</Text>
+                          <Text style={styles.muted}>{u.email}</Text>
+                          <Text style={styles.muted}>Phone: {u.phone || "Not added"}</Text>
+                          <Text style={[styles.muted, { fontSize: 11 }]}>
+                            Joined {new Date(u.created_at).toLocaleDateString()}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.cardTitle}>{u.name}</Text>
-                        <Text style={styles.muted}>{u.email}</Text>
-                        <Text style={styles.muted}>Phone: {u.phone || "Not added"}</Text>
-                        <Text style={[styles.muted, { fontSize: 11 }]}>
-                          Joined {new Date(u.created_at).toLocaleDateString()}
-                        </Text>
-                      </View>
+                      <AdminBadge label={u.plan} variant="primary" />
                     </View>
-                    <AdminBadge label={u.plan} variant="primary" />
-                  </View>
 
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                    <AdminBadge
-                      label={u.role ?? "user"}
-                      variant={u.role === "super_admin" ? "warning" : "muted"}
-                    />
-                    {u.id === currentUser?.id && <AdminBadge label="You" variant="info" />}
-                  </View>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                      <AdminBadge
+                        label={u.role ?? "user"}
+                        variant={u.role === SUPER_ADMIN_ROLE ? "warning" : "muted"}
+                      />
+                      {u.has_owner_access && (
+                        <AdminBadge label="owner_access" variant="warning" />
+                      )}
+                      {u.id === currentUser?.id && <AdminBadge label="You" variant="info" />}
+                    </View>
 
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
-                    <Pressable
-                      onPress={() => openEdit(u)}
-                      style={[styles.secondaryButton, { flex: 1, marginTop: 0 }]}
-                    >
-                      <Text style={styles.secondaryButtonText}>Edit</Text>
-                    </Pressable>
-                    {u.id !== currentUser?.id && (
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                       <Pressable
-                        onPress={() => confirmDelete(u)}
-                        style={[styles.secondaryButton, { flex: 1, marginTop: 0, borderColor: colors.danger }]}
+                        onPress={() =>
+                          runAction(
+                            u.id,
+                            () => grantPlanAccess(u.id, "premium"),
+                            `${u.email} granted Premium.`
+                          )
+                        }
+                        disabled={busy}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.success },
+                        ]}
                       >
-                        <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Delete</Text>
+                        <Text style={[styles.secondaryButtonText, { color: colors.success }]}>
+                          Grant Premium
+                        </Text>
                       </Pressable>
-                    )}
-                  </View>
-                </Card>
-              ))
+                      <Pressable
+                        onPress={() =>
+                          runAction(
+                            u.id,
+                            () => grantPlanAccess(u.id, "landlord"),
+                            `${u.email} granted Landlord.`
+                          )
+                        }
+                        disabled={busy}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.primary },
+                        ]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>
+                          Grant Landlord
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() =>
+                          runAction(
+                            u.id,
+                            () => grantPlanAccess(u.id, "realtor"),
+                            `${u.email} granted Realtor.`
+                          )
+                        }
+                        disabled={busy}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.gold },
+                        ]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: colors.gold }]}>
+                          Grant Realtor
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() =>
+                          runAction(
+                            u.id,
+                            () => grantOwnerAccess(u.id, u.email),
+                            `${u.email} granted Owner Access.`
+                          )
+                        }
+                        disabled={busy}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.gold },
+                        ]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: colors.gold }]}>
+                          Grant Owner Access
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() =>
+                          runAction(
+                            u.id,
+                            () => grantUserRole(u.id, SUPER_ADMIN_ROLE),
+                            `${u.email} marked as Super Admin.`
+                          )
+                        }
+                        disabled={busy}
+                        style={[
+                          styles.secondaryButton,
+                          { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.warning },
+                        ]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: colors.warning }]}>
+                          Super Admin
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => openEdit(u)}
+                        style={[styles.secondaryButton, { flex: 1, minWidth: "45%", marginTop: 0 }]}
+                      >
+                        <Text style={styles.secondaryButtonText}>Edit Plan</Text>
+                      </Pressable>
+                      {u.id !== currentUser?.id && (
+                        <>
+                          <Pressable
+                            onPress={() => confirmRevoke(u)}
+                            disabled={busy}
+                            style={[
+                              styles.secondaryButton,
+                              { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.warning },
+                            ]}
+                          >
+                            <Text style={[styles.secondaryButtonText, { color: colors.warning }]}>
+                              Revoke Access
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => confirmDelete(u)}
+                            style={[
+                              styles.secondaryButton,
+                              { flex: 1, minWidth: "45%", marginTop: 0, borderColor: colors.danger },
+                            ]}
+                          >
+                            <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>
+                              Delete
+                            </Text>
+                          </Pressable>
+                        </>
+                      )}
+                    </View>
+                  </Card>
+                );
+              })
             )}
           </ScrollView>
         )}
@@ -258,7 +422,7 @@ export default function AdminUsersScreen() {
                 onChange={(v) => setEditPlan(v as PlanKey)}
               />
               <AdminSelect
-                label="User Role"
+                label="User Role (user_roles)"
                 value={editRole}
                 options={ROLE_OPTIONS}
                 onChange={(v) => setEditRole(v as UserRole)}
