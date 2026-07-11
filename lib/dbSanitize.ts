@@ -1,8 +1,12 @@
-/** Empty / whitespace-only strings → null. */
+const PLACEHOLDER_TEXT = new Set(["tbd", "not yet", "not recorded", "—", "-", "n/a"]);
+
+/** Empty / whitespace-only / placeholder strings → null. */
 export function emptyToNull(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (trimmed.length === 0) return null;
+  if (PLACEHOLDER_TEXT.has(trimmed.toLowerCase())) return null;
+  return trimmed;
 }
 
 /** Parse a numeric form value; empty → null. */
@@ -35,6 +39,30 @@ export function setTextField(
   const text = emptyToNull(value);
   if (text === null) return;
   row[key] = text;
+}
+
+/** Omit empty/placeholder text dates — never send null to Supabase text date columns. */
+export function setTextDateFieldOmit(
+  row: Record<string, unknown>,
+  key: string,
+  value: unknown
+) {
+  if (value === undefined) return;
+  const text = emptyToNull(value);
+  if (text === null) return;
+  row[key] = text;
+}
+
+/** Omit empty numeric values — never send null for optional numeric columns. */
+export function setNumericFieldOmit(
+  row: Record<string, unknown>,
+  key: string,
+  value: unknown
+) {
+  if (value === undefined) return;
+  const parsed = toNumericOrNull(value);
+  if (parsed === null) return;
+  row[key] = parsed;
 }
 
 /** Empty date/text → null; undefined → omit. */

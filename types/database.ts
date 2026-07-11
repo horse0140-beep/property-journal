@@ -9,10 +9,12 @@ import type {
   PhotoItem,
 } from "@/data/demoData";
 import type { PropertyScore } from "@/context/HomeWiseContext";
-import { isColumnMissing } from "@/lib/dbErrors";
+import { normalizePhotoItem } from "@/lib/photoUtils";
 import {
   setDateFieldNullable,
   setNumericFieldNullable,
+  setNumericFieldOmit,
+  setTextDateFieldOmit,
   setTextField,
   toDisplayString,
   toNumericOrNull,
@@ -24,25 +26,77 @@ function parsePhotoUri(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function setIfPresent(
-  row: Record<string, unknown>,
-  column: string,
-  value: unknown
-) {
-  if (isColumnMissing(column)) return;
+const DOCUMENT_CATEGORIES = [
+  "warranty",
+  "insurance",
+  "inspection",
+  "permit",
+  "receipt",
+  "contract",
+  "manual",
+  "other",
+] as const satisfies readonly Document["category"][];
+
+const DOCUMENT_CATEGORY_ALIASES: Record<string, Document["category"]> = {
+  warranties: "warranty",
+  receipts: "receipt",
+  permits: "permit",
+  inspections: "inspection",
+  contracts: "contract",
+  manuals: "manual",
+};
+
+export function normalizeDocumentCategory(
+  raw: unknown,
+  override?: Document["category"]
+): Document["category"] {
+  if (override) return override;
+  const key = String(raw ?? "other").toLowerCase().trim();
+  if ((DOCUMENT_CATEGORIES as readonly string[]).includes(key)) {
+    return key as Document["category"];
+  }
+  return DOCUMENT_CATEGORY_ALIASES[key] ?? "other";
+}
+
+export function matchesPropertyId(
+  a: string | undefined | null,
+  b: string | undefined | null
+): boolean {
+  if (!a || !b) return false;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+function formatUploadDate(value?: string): string {
+  if (value?.trim()) return value.trim();
+  return new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function setIfPresent(row: Record<string, unknown>, column: string, value: unknown) {
   if (value === undefined || value === null || value === "") return;
   row[column] = value;
 }
 
 export function rowToProperty(row: Record<string, unknown>): Property {
+  const address =
+    toDisplayString(row.street_address) ||
+    toDisplayString(row.address) ||
+    toDisplayString(row.property_name);
+
+  const rawType = row.property_type ?? row.type;
+  const type = (rawType as Property["type"]) ?? "primary";
+
   return {
     id: row.id as string,
-    nickname: toDisplayString(row.nickname),
-    address: row.address as string,
+    nickname: toDisplayString(row.nickname ?? row.property_name),
+    address,
     city: toDisplayString(row.city),
     state: toDisplayString(row.state),
     zip: toDisplayString(row.zip),
-    type: (row.type as Property["type"]) ?? "primary",
+    type,
     yearBuilt: toDisplayString(row.year_built),
     squareFeet: toDisplayString(row.square_feet),
     bedrooms: toDisplayString(row.bedrooms),
@@ -50,42 +104,86 @@ export function rowToProperty(row: Record<string, unknown>): Property {
     purchasePrice: toDisplayString(row.purchase_price),
     estimatedValue: toDisplayString(row.estimated_value ?? row.value),
     purchaseDate: toDisplayString(row.purchase_date),
-    photoUri: parsePhotoUri(row.photo_url),
-    isSelected: Boolean(row.is_selected),
+    photoUri: parsePhotoUri(row.photo_url ?? row.image_url),
+    isSelected: Boolean(row.is_selected ?? row.is_primary),
   };
 }
 
-export function propertyToRow(userId: string, p: Property): Record<string, unknown> {
+/** Property columns only — user_id is set in propertyService from supabase.auth.getUser(). */
+export function propertyToRow(p: Property): Record<string, unknown> {
+  const streetAddress = p.address?.trim() ?? "";
+  const propertyName = p.nickname?.trim() || streetAddress;
+
   const row: Record<string, unknown> = {
     id: p.id,
-    user_id: userId,
-    address: p.address,
-    type: p.type,
+    property_name: propertyName,
+    address: streetAddress,
+    street_address: streetAddress,
+    property_type: p.type,
+    is_primary: p.type === "primary",
+    is_active: true,
+    is_selected: Boolean(p.isSelected),
   };
 
   setTextField(row, "nickname", p.nickname);
   setTextField(row, "city", p.city);
   setTextField(row, "state", p.state);
   setTextField(row, "zip", p.zip);
-  setTextField(row, "year_built", p.yearBuilt);
+  setNumericFieldNullable(row, "year_built", p.yearBuilt);
   setNumericFieldNullable(row, "square_feet", p.squareFeet);
   setNumericFieldNullable(row, "bedrooms", p.bedrooms);
   setNumericFieldNullable(row, "bathrooms", p.bathrooms);
   setNumericFieldNullable(row, "purchase_price", p.purchasePrice);
   setNumericFieldNullable(row, "estimated_value", p.estimatedValue);
-  setNumericFieldNullable(row, "value", p.estimatedValue);
   setDateFieldNullable(row, "purchase_date", p.purchaseDate);
 
   const photo = parsePhotoUri(p.photoUri);
-  if (photo && !isColumnMissing("photo_url")) {
+  if (photo) {
     row.photo_url = photo;
-  }
-  if (p.isSelected && !isColumnMissing("is_selected")) {
-    row.is_selected = true;
+    row.image_url = photo;
   }
 
   return row;
 }
+
+function propertyPartialToRow(updates: Partial<Property>): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+
+  if (updates.nickname !== undefined) setTextField(row, "nickname", updates.nickname);
+  if (updates.address !== undefined) {
+    const streetAddress = updates.address.trim();
+    row.address = streetAddress;
+    row.street_address = streetAddress;
+    row.property_name = updates.nickname?.trim() || streetAddress;
+  }
+  if (updates.city !== undefined) setTextField(row, "city", updates.city);
+  if (updates.state !== undefined) setTextField(row, "state", updates.state);
+  if (updates.zip !== undefined) setTextField(row, "zip", updates.zip);
+  if (updates.type !== undefined) {
+    row.property_type = updates.type;
+    row.is_primary = updates.type === "primary";
+  }
+  if (updates.yearBuilt !== undefined) setNumericFieldNullable(row, "year_built", updates.yearBuilt);
+  if (updates.squareFeet !== undefined) setNumericFieldNullable(row, "square_feet", updates.squareFeet);
+  if (updates.bedrooms !== undefined) setNumericFieldNullable(row, "bedrooms", updates.bedrooms);
+  if (updates.bathrooms !== undefined) setNumericFieldNullable(row, "bathrooms", updates.bathrooms);
+  if (updates.purchasePrice !== undefined) setNumericFieldNullable(row, "purchase_price", updates.purchasePrice);
+  if (updates.estimatedValue !== undefined) setNumericFieldNullable(row, "estimated_value", updates.estimatedValue);
+  if (updates.purchaseDate !== undefined) setDateFieldNullable(row, "purchase_date", updates.purchaseDate);
+  if (updates.photoUri !== undefined && updates.photoUri) {
+    row.photo_url = updates.photoUri;
+    row.image_url = updates.photoUri;
+  }
+  if (updates.isSelected !== undefined) row.is_selected = updates.isSelected;
+
+  if (updates.nickname !== undefined && !updates.address) {
+    setTextField(row, "property_name", updates.nickname);
+  }
+
+  return row;
+}
+
+export { propertyPartialToRow };
 
 export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem {
   const interval = row.interval_days;
@@ -105,24 +203,27 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
 }
 
 export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<string, unknown> {
+  const propertyId = (m.propertyId ?? "").trim();
+  const title = (m.title ?? "").trim();
+  if (!propertyId) throw new Error("property_id is required.");
+  if (!title) throw new Error("title is required.");
+
   const row: Record<string, unknown> = {
     id: m.id,
     user_id: userId,
-    property_id: m.propertyId,
-    title: m.title,
+    property_id: propertyId,
+    title,
+    status: m.status || "Upcoming",
+    priority: m.priority || "medium",
   };
 
-  setTextField(row, "category", m.category);
-  setDateFieldNullable(row, "last_completed", m.lastCompleted);
-  setDateFieldNullable(row, "next_due", m.nextDue);
-  setTextField(row, "status", m.status);
+  setTextField(row, "category", m.category || "General");
+  setTextDateFieldOmit(row, "last_completed", m.lastCompleted);
+  setTextDateFieldOmit(row, "next_due", m.nextDue);
   setTextField(row, "notes", m.notes);
-  setTextField(row, "priority", m.priority);
-  setNumericFieldNullable(row, "interval_days", m.intervalDays);
+  setNumericFieldOmit(row, "interval_days", m.intervalDays);
 
-  if (m.recurring === true && !isColumnMissing("recurring")) {
-    row.recurring = true;
-  }
+  if (m.recurring === true) row.recurring = true;
 
   return row;
 }
@@ -144,26 +245,30 @@ export function rowToRepair(row: Record<string, unknown>): Repair {
 }
 
 export function repairToRow(userId: string, r: Repair): Record<string, unknown> {
+  const propertyId = (r.propertyId ?? "").trim();
+  const title = (r.title ?? "").trim();
+  if (!propertyId) throw new Error("property_id is required.");
+  if (!title) throw new Error("title is required.");
+
   const row: Record<string, unknown> = {
     id: r.id,
     user_id: userId,
-    property_id: r.propertyId,
-    title: r.title,
+    property_id: propertyId,
+    title,
   };
 
   setTextField(row, "contractor", r.contractor);
-  setTextField(row, "category", r.category);
+  setTextField(row, "category", r.category || "General");
   setTextField(row, "notes", r.notes);
-  setDateFieldNullable(row, "date", r.date);
-  setNumericFieldNullable(row, "cost", r.cost);
-  setDateFieldNullable(row, "warranty_expires", r.warrantyExpires);
+  setTextDateFieldOmit(row, "date", r.date);
+  setTextField(row, "cost", r.cost);
+  setTextDateFieldOmit(row, "warranty_expires", r.warrantyExpires);
 
-  if (r.photoUris !== undefined) {
+  if (r.photoUris?.length) {
     row.photo_urls = r.photoUris;
   }
-  if (r.receiptUri !== undefined) {
-    row.receipt_url = parsePhotoUri(r.receiptUri) ?? null;
-  }
+  const receipt = parsePhotoUri(r.receiptUri);
+  if (receipt) row.receipt_url = receipt;
 
   return row;
 }
@@ -176,7 +281,7 @@ export function rowToAppliance(row: Record<string, unknown>): Appliance {
   return {
     id: row.id as string,
     propertyId: row.property_id as string,
-    name: row.name as string,
+    name: toDisplayString(row.appliance_name ?? row.name),
     category: toDisplayString(row.category),
     brand: toDisplayString(row.brand),
     model: toDisplayString(row.model),
@@ -196,11 +301,13 @@ export function rowToAppliance(row: Record<string, unknown>): Appliance {
 }
 
 export function applianceToRow(userId: string, a: Appliance): Record<string, unknown> {
+  const displayName = (a.name ?? "").trim();
   const row: Record<string, unknown> = {
     id: a.id,
     user_id: userId,
     property_id: a.propertyId,
-    name: a.name,
+    appliance_name: displayName,
+    name: displayName,
   };
 
   setTextField(row, "category", a.category || "Appliance");
@@ -208,49 +315,113 @@ export function applianceToRow(userId: string, a: Appliance): Record<string, unk
   setTextField(row, "model", a.model);
 
   if (a.serial) {
-    setIfPresent(row, "serial", a.serial);
-    setIfPresent(row, "serial_number", a.serial);
+    setTextField(row, "serial", a.serial);
   }
 
   setDateFieldNullable(row, "install_date", a.installDate);
-  setDateFieldNullable(row, "purchase_date", a.installDate);
   setNumericFieldNullable(row, "purchase_price", a.purchasePrice);
 
   const lifeYears = toNumericOrNull(a.expectedLifeYears);
   if (lifeYears !== null) {
-    setIfPresent(row, "expected_life_years", lifeYears);
+    row.expected_life_years = lifeYears;
   }
 
   setDateFieldNullable(row, "warranty_expires", a.warrantyExpires);
-  setDateFieldNullable(row, "warranty_expiration", a.warrantyExpires);
   setTextField(row, "last_service", a.lastService);
   setTextField(row, "next_service", a.nextService);
   setTextField(row, "condition", a.condition || "Good");
   setTextField(row, "notes", a.notes);
 
   const photo = parsePhotoUri(a.photoUri);
-  if (photo) setIfPresent(row, "photo_url", photo);
-
+  if (photo) row.photo_url = photo;
   const manual = parsePhotoUri(a.manualUri);
-  if (manual) setIfPresent(row, "manual_url", manual);
-
+  if (manual) row.manual_url = manual;
   const receipt = parsePhotoUri(a.receiptUri);
-  if (receipt) setIfPresent(row, "receipt_url", receipt);
+  if (receipt) row.receipt_url = receipt;
 
-  if (!isColumnMissing("is_active")) {
-    row.is_active = true;
+  return row;
+}
+
+export function documentToRow(
+  userId: string,
+  doc: Document,
+  table: "documents" | "receipts" | "warranties" = "documents"
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    id: doc.id,
+    user_id: userId,
+    property_id: doc.propertyId,
+    title: doc.title.trim(),
+    file_url: doc.fileUri?.trim() || "",
+    file_type: doc.fileType || "pdf",
+    upload_date: formatUploadDate(doc.uploadDate),
+    notes: doc.notes ?? "",
+  };
+
+  // tags: documents/receipts/warranties — column added in migration 016
+  if (doc.tags?.length) {
+    row.tags = doc.tags;
+  }
+
+  setTextField(row, "file_size", doc.fileSize);
+  setDateFieldNullable(row, "expires_date", doc.expiresDate);
+
+  if (table === "documents") {
+    row.category = normalizeDocumentCategory(doc.category);
   }
 
   return row;
 }
 
+export function contractorToRow(userId: string, c: Contractor): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    id: c.id,
+    user_id: userId,
+    name: c.name,
+  };
+
+  if (c.propertyId) row.property_id = c.propertyId;
+  setTextField(row, "trade", c.trade);
+  setTextField(row, "phone", c.phone);
+  setTextField(row, "email", c.email);
+  setTextField(row, "website", c.website);
+  setTextField(row, "notes", c.notes);
+  setTextField(row, "last_used", c.lastUsed);
+  setTextField(row, "license_number", c.licenseNumber);
+
+  const rating = toNumericOrNull(c.rating);
+  if (rating !== null) row.rating = rating;
+
+  return row;
+}
+
+export function paintToRow(userId: string, p: PaintColor): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    id: p.id,
+    user_id: userId,
+    property_id: p.propertyId,
+    room: p.room,
+  };
+
+  setTextField(row, "brand", p.brand);
+  setTextField(row, "color_name", p.colorName);
+  setTextField(row, "color_code", p.colorCode);
+  setTextField(row, "finish", p.finish);
+  setTextField(row, "hex", p.hex);
+  setDateFieldNullable(row, "purchase_date", p.purchaseDate);
+  setTextField(row, "notes", p.notes);
+
+  return row;
+}
+
 export function rowToDocument(row: Record<string, unknown>, categoryOverride?: Document["category"]): Document {
+  const fileUrl = toDisplayString(row.file_url);
   return {
     id: row.id as string,
-    propertyId: row.property_id as string,
-    title: row.title as string,
-    category: categoryOverride ?? ((row.category as Document["category"]) ?? "other"),
-    fileUri: (row.file_url as string) ?? undefined,
+    propertyId: toDisplayString(row.property_id ?? row.propertyId),
+    title: toDisplayString(row.title),
+    category: normalizeDocumentCategory(row.category, categoryOverride),
+    fileUri: fileUrl || undefined,
     fileType: (row.file_type as Document["fileType"]) ?? "pdf",
     fileSize: (row.file_size as string) ?? "",
     uploadDate: (row.upload_date as string) ?? "",
@@ -261,14 +432,7 @@ export function rowToDocument(row: Record<string, unknown>, categoryOverride?: D
 }
 
 export function rowToPhoto(row: Record<string, unknown>): PhotoItem {
-  return {
-    id: row.id as string,
-    propertyId: row.property_id as string,
-    uri: row.file_url as string,
-    caption: (row.caption as string) ?? "",
-    date: (row.date as string) ?? "",
-    category: (row.category as string) ?? "general",
-  };
+  return normalizePhotoItem(row);
 }
 
 export function rowToContractor(row: Record<string, unknown>): Contractor {

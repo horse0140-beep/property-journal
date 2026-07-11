@@ -1,6 +1,9 @@
 /** True when a table/column is missing or the schema does not match. */
 export function isMissingSchemaError(message: string): boolean {
   const lower = message.toLowerCase();
+  if (lower.includes("null value") || lower.includes("not-null") || lower.includes("violates not-null")) {
+    return false;
+  }
   return (
     lower.includes("does not exist") ||
     lower.includes("relation") ||
@@ -12,7 +15,33 @@ export function isMissingSchemaError(message: string): boolean {
 
 export const PROPERTY_OPTIONAL_COLUMNS = ["photo_url", "is_selected"] as const;
 
+/** Optional photos columns — file_url is always required on insert. */
+export const PHOTO_OPTIONAL_COLUMNS = ["photo_url", "uri", "storage_path", "storage_bucket"] as const;
+
+export const MAINTENANCE_OPTIONAL_COLUMNS = [
+  "recurring",
+  "interval_days",
+  "priority",
+  "last_completed",
+  "next_due",
+  "notes",
+  "category",
+  "status",
+] as const;
+
+export const REPAIR_OPTIONAL_COLUMNS = [
+  "photo_urls",
+  "receipt_url",
+  "warranty_expires",
+  "date",
+  "cost",
+  "contractor",
+  "category",
+  "notes",
+] as const;
+
 export const APPLIANCE_OPTIONAL_COLUMNS = [
+  "name",
   "photo_url",
   "manual_url",
   "receipt_url",

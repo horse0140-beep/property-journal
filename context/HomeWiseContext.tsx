@@ -5,22 +5,28 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { requireAuthUserId } from "@/lib/authUser";
 import { Alert } from "react-native";
+import { showRealSaveError } from "@/lib/realSaveError";
+import { friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import { loadAllUserData } from "@/services/dataService";
 import * as propertyService from "@/services/propertyService";
 import * as maintenanceService from "@/services/maintenanceService";
 import * as applianceService from "@/services/applianceService";
 import * as repairService from "@/services/repairService";
 import * as vaultService from "@/services/vaultService";
+import * as photoService from "@/services/photoService";
 import * as scoreService from "@/services/scoreService";
 import {
   uploadLocalFileIfNeeded,
   bucketForDocumentCategory,
-  bucketForPropertyPhoto,
   bucketForRepairAsset,
+  isRemoteUri,
 } from "@/services/storageService";
+import { getPhotoBucket, photoKindFromCategory } from "@/services/storageBuckets";
 
 export type {
   Property,
@@ -72,28 +78,29 @@ type AppContextValue = AppState & {
   refreshData: () => Promise<void>;
   selectedProperty: Property | undefined;
   selectProperty: (id: string) => void;
-  addProperty: (p: Omit<Property, "id" | "isSelected">) => void;
-  updateProperty: (id: string, p: Partial<Property>) => void;
+  addProperty: (p: Omit<Property, "id" | "isSelected">) => Promise<Property>;
+  updateProperty: (id: string, p: Partial<Property>) => Promise<Property | null | undefined>;
   deleteProperty: (id: string) => void;
-  addMaintenanceItem: (item: Omit<MaintenanceItem, "id">) => void;
-  updateMaintenanceItem: (id: string, item: Partial<MaintenanceItem>) => void;
+  addMaintenanceItem: (item: Omit<MaintenanceItem, "id">) => Promise<MaintenanceItem>;
+  updateMaintenanceItem: (id: string, item: Partial<MaintenanceItem>) => Promise<void>;
   deleteMaintenanceItem: (id: string) => void;
-  completeMaintenanceItem: (id: string) => void;
-  addRepair: (r: Omit<Repair, "id">) => void;
-  updateRepair: (id: string, r: Partial<Repair>) => void;
+  completeMaintenanceItem: (id: string) => Promise<void>;
+  addRepair: (r: Omit<Repair, "id">) => Promise<Repair>;
+  updateRepair: (id: string, r: Partial<Repair>) => Promise<void>;
   deleteRepair: (id: string) => void;
-  addAppliance: (a: Omit<Appliance, "id">) => void;
-  updateAppliance: (id: string, a: Partial<Appliance>) => void;
+  addAppliance: (a: Omit<Appliance, "id">) => Promise<Appliance>;
+  updateAppliance: (id: string, a: Partial<Appliance>) => Promise<void>;
   deleteAppliance: (id: string) => void;
-  addDocument: (d: Omit<Document, "id">) => void;
-  updateDocument: (id: string, d: Partial<Document>) => void;
+  addDocument: (d: Omit<Document, "id">) => Promise<Document>;
+  updateDocument: (id: string, d: Partial<Document>) => Promise<void>;
   deleteDocument: (id: string) => void;
-  addPaintColor: (p: Omit<PaintColor, "id">) => void;
+  addPaintColor: (p: Omit<PaintColor, "id">) => Promise<PaintColor>;
   deletePaintColor: (id: string) => void;
-  addContractor: (c: Omit<Contractor, "id">) => void;
-  updateContractor: (id: string, c: Partial<Contractor>) => void;
+  addContractor: (c: Omit<Contractor, "id">) => Promise<Contractor>;
+  updateContractor: (id: string, c: Partial<Contractor>) => Promise<void>;
   deleteContractor: (id: string) => void;
-  addPhoto: (p: Omit<PhotoItem, "id">) => void;
+  addPhoto: (p: Omit<PhotoItem, "id"> & { photoType?: string }) => Promise<PhotoItem>;
+  updatePhoto: (id: string, updates: { caption?: string; category?: string }) => Promise<void>;
   deletePhoto: (id: string) => void;
   getPropertyScore: (propertyId: string) => PropertyScore;
   resetDemoData: () => void;
@@ -171,29 +178,40 @@ function computeScore(
   };
 }
 
-export function HomeWiseProvider({ children, userId }: { children: ReactNode; userId?: string }) {
+export function HomeWiseProvider({
+  children,
+  isSignedIn,
+}: {
+  children: ReactNode;
+  isSignedIn: boolean;
+}) {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [scoreMap, setScoreMap] = useState<Record<string, PropertyScore>>({});
-  const [isLoading, setIsLoading] = useState(!!userId);
+  const [isLoading, setIsLoading] = useState(isSignedIn);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const renderedScoresRef = useRef<Record<string, PropertyScore>>({});
+  const isSignedInRef = useRef(isSignedIn);
+  isSignedInRef.current = isSignedIn;
 
   const persistScore = useCallback(
     async (propertyId: string, score: PropertyScore) => {
-      if (!userId) return;
+      if (!isSignedIn) return;
       try {
+        const userId = await requireAuthUserId();
         await scoreService.upsertPropertyScore(userId, propertyId, score);
         setScoreMap((m) => ({ ...m, [propertyId]: score }));
       } catch {
         // score persistence is best-effort
       }
     },
-    [userId]
+    [isSignedIn]
   );
 
   const refreshData = useCallback(async () => {
-    if (!userId) {
+    if (!isSignedInRef.current) {
       setState(EMPTY_STATE);
       setScoreMap({});
+      renderedScoresRef.current = {};
       setIsLoading(false);
       return;
     }
@@ -202,21 +220,34 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
     setLoadError(null);
 
     try {
-      const data = await loadAllUserData(userId);
-      setState({
-        properties: data.properties,
-        maintenanceItems: data.maintenanceItems,
-        repairs: data.repairs,
-        appliances: data.appliances,
-        documents: data.documents,
-        photos: data.photos,
-        contractors: data.contractors,
-        paintColors: data.paintColors,
-        selectedPropertyId: data.selectedPropertyId,
+      const data = await loadAllUserData();
+      if (!isSignedInRef.current) return;
+
+      setState((prev) => {
+        const selectedId =
+          prev.selectedPropertyId && data.properties.some((p) => p.id === prev.selectedPropertyId)
+            ? prev.selectedPropertyId
+            : data.selectedPropertyId;
+
+        return {
+          properties: data.properties.map((p) => ({
+            ...p,
+            isSelected: p.id === selectedId,
+          })),
+          maintenanceItems: data.maintenanceItems,
+          repairs: data.repairs,
+          appliances: data.appliances,
+          documents: data.documents,
+          photos: data.photos,
+          contractors: data.contractors,
+          paintColors: data.paintColors,
+          selectedPropertyId: selectedId,
+        };
       });
       setScoreMap(data.scoreMap);
 
       for (const prop of data.properties) {
+        if (!isSignedInRef.current) return;
         if (!data.scoreMap[prop.id]) {
           const score = computeScore(prop.id, {
             ...EMPTY_STATE,
@@ -229,20 +260,56 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
           void persistScore(prop.id, score);
         }
       }
-    } catch (e: any) {
-      setLoadError(e.message ?? "Failed to load home data");
+    } catch (e: unknown) {
+      logTechnicalError("loadAllUserData", e);
+      setLoadError(friendlyMessage("generic"));
     } finally {
       setIsLoading(false);
     }
-  }, [userId, persistScore]);
+  }, [isSignedIn, persistScore]);
+
+  const selectProperty = useCallback(
+    (id: string) => {
+      if (!id) return;
+
+      let didChange = false;
+      setState((s) => {
+        if (s.selectedPropertyId === id) return s;
+
+        didChange = true;
+        return {
+          ...s,
+          selectedPropertyId: id,
+          properties: s.properties.map((p) => {
+            const isSelected = p.id === id;
+            return p.isSelected === isSelected ? p : { ...p, isSelected };
+          }),
+        };
+      });
+
+      if (didChange && isSignedIn) {
+        propertyService.setSelectedProperty(id).catch(() => {});
+      }
+    },
+    [isSignedIn]
+  );
 
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    if (!isSignedIn) {
+      setState(EMPTY_STATE);
+      setScoreMap({});
+      renderedScoresRef.current = {};
+      setIsLoading(false);
+      setLoadError(null);
+      return;
+    }
+    void refreshData();
+    // Only react to auth transitions — not refreshData identity changes while signed in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   const syncError = useCallback((action: string, err: unknown) => {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    Alert.alert(`${action} Failed`, msg);
+    showRealSaveError("HomeWiseContext", action, err);
   }, []);
 
   const value = useMemo<AppContextValue>(() => {
@@ -250,15 +317,16 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
 
     function getPropertyScore(propertyId: string): PropertyScore {
       if (scoreMap[propertyId]) return scoreMap[propertyId];
+      if (renderedScoresRef.current[propertyId]) return renderedScoresRef.current[propertyId];
       const score = computeScore(propertyId, state);
-      if (userId) persistScore(propertyId, score);
+      renderedScoresRef.current[propertyId] = score;
       return score;
     }
 
     function bumpScore(propertyId: string) {
       setState((s) => {
         const score = computeScore(propertyId, s);
-        if (userId) persistScore(propertyId, score);
+        if (isSignedIn) persistScore(propertyId, score);
         setScoreMap((m) => ({ ...m, [propertyId]: score }));
         return s;
       });
@@ -270,42 +338,69 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
       loadError,
       refreshData,
       selectedProperty: prop,
+      selectProperty,
 
-      selectProperty: (id) => {
-        setState((s) => ({
-          ...s,
-          selectedPropertyId: id,
-          properties: s.properties.map((p) => ({ ...p, isSelected: p.id === id })),
-        }));
-        if (userId) propertyService.setSelectedProperty(userId, id).catch(() => {});
-      },
-
-      addProperty: (p) => {
+      addProperty: async (p) => {
         const newProp: Property = { ...p, id: uuid(), isSelected: state.properties.length === 0 };
+        const priorProperties = state.properties;
+        const priorSelectedId = state.selectedPropertyId;
+
         setState((s) => ({
           ...s,
           properties: [...s.properties, newProp],
           selectedPropertyId: s.properties.length === 0 ? newProp.id : s.selectedPropertyId,
         }));
-        if (userId) {
-          propertyService.createProperty(userId, newProp).then((created) => {
-            setState((s) => ({
-              ...s,
-              properties: s.properties.map((pr) => (pr.id === newProp.id ? created : pr)),
-              selectedPropertyId: s.selectedPropertyId === newProp.id ? created.id : s.selectedPropertyId,
-            }));
-            const score = computeScore(created.id, { ...state, properties: [...state.properties, created] });
-            persistScore(created.id, score);
-          }).catch((e) => syncError("Add property", e));
+
+        if (!isSignedIn) return newProp;
+
+        try {
+          const created = await propertyService.createProperty(newProp);
+          setState((s) => ({
+            ...s,
+            properties: s.properties.map((pr) => (pr.id === newProp.id ? created : pr)),
+            selectedPropertyId: s.selectedPropertyId === newProp.id ? created.id : s.selectedPropertyId,
+          }));
+          if (created.isSelected) {
+            void propertyService.setSelectedProperty(created.id);
+          }
+          const score = computeScore(created.id, {
+            ...state,
+            properties: [...priorProperties, created],
+          });
+          void persistScore(created.id, score);
+          return created;
+        } catch (e) {
+          setState((s) => ({
+            ...s,
+            properties: priorProperties,
+            selectedPropertyId: priorSelectedId,
+          }));
+          throw e;
         }
       },
 
-      updateProperty: (id, p) => {
-        setState((s) => ({
-          ...s,
-          properties: s.properties.map((pr) => (pr.id === id ? { ...pr, ...p } : pr)),
-        }));
-        if (userId) propertyService.updateProperty(userId, id, p).catch((e) => syncError("Update property", e));
+      updateProperty: async (id, p) => {
+        const previous = state.properties.find((pr) => pr.id === id);
+        if (!isSignedIn) return previous ?? null;
+
+        try {
+          const saved = await propertyService.updateProperty(id, p);
+          if (saved) {
+            setState((s) => ({
+              ...s,
+              properties: s.properties.map((pr) => (pr.id === id ? saved : pr)),
+            }));
+          }
+          return saved;
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              properties: s.properties.map((pr) => (pr.id === id ? previous : pr)),
+            }));
+          }
+          throw e;
+        }
       },
 
       deleteProperty: (id) => {
@@ -317,42 +412,66 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
             selectedPropertyId: s.selectedPropertyId === id ? (remaining[0]?.id ?? "") : s.selectedPropertyId,
           };
         });
-        if (userId) propertyService.deleteProperty(userId, id).catch((e) => syncError("Delete property", e));
+        if (isSignedIn) propertyService.deleteProperty(id).catch((e) => syncError("Delete property", e));
       },
 
-      addMaintenanceItem: (item) => {
+      addMaintenanceItem: async (item) => {
         const newItem = { ...item, id: uuid() };
+        const prior = state.maintenanceItems;
         setState((s) => ({ ...s, maintenanceItems: [newItem, ...s.maintenanceItems] }));
         bumpScore(item.propertyId);
-        if (userId) {
-          maintenanceService.createMaintenanceItem(userId, newItem).then((created) => {
-            setState((s) => ({
-              ...s,
-              maintenanceItems: s.maintenanceItems.map((m) => (m.id === newItem.id ? created : m)),
-            }));
-          }).catch((e) => syncError("Add maintenance", e));
+        if (!isSignedIn) return newItem;
+        try {
+          const userId = await requireAuthUserId();
+          const created = await maintenanceService.createMaintenanceItem(userId, newItem);
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === newItem.id ? created : m)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, maintenanceItems: prior }));
+          throw e;
         }
       },
 
-      updateMaintenanceItem: (id, item) => {
+      updateMaintenanceItem: async (id, item) => {
+        const previous = state.maintenanceItems.find((m) => m.id === id);
         setState((s) => {
           const updated = s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...item } : m));
           const pid = updated.find((m) => m.id === id)?.propertyId;
           if (pid) bumpScore(pid);
           return { ...s, maintenanceItems: updated };
         });
-        if (userId) maintenanceService.updateMaintenanceItem(userId, id, item).catch((e) => syncError("Update maintenance", e));
+        if (!isSignedIn) return;
+        try {
+          const userId = await requireAuthUserId();
+          await maintenanceService.updateMaintenanceItem(userId, id, item);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
+            }));
+          }
+          throw e;
+        }
       },
 
       deleteMaintenanceItem: (id) => {
         const pid = state.maintenanceItems.find((m) => m.id === id)?.propertyId;
         setState((s) => ({ ...s, maintenanceItems: s.maintenanceItems.filter((m) => m.id !== id) }));
         if (pid) bumpScore(pid);
-        if (userId) maintenanceService.deleteMaintenanceItem(userId, id).catch((e) => syncError("Delete maintenance", e));
+        if (isSignedIn) {
+          void requireAuthUserId()
+            .then((userId) => maintenanceService.deleteMaintenanceItem(userId, id))
+            .catch((e) => syncError("Delete maintenance", e));
+        }
       },
 
-      completeMaintenanceItem: (id) => {
+      completeMaintenanceItem: async (id) => {
         const item = state.maintenanceItems.find((m) => m.id === id);
+        const previous = item ? { ...item } : null;
         const lastCompleted = new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" });
         const nextDue =
           item?.recurring && item.intervalDays
@@ -361,8 +480,8 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
                 year: "numeric",
               })
             : item?.nextDue ?? "TBD";
-        const updates = {
-          status: (item?.recurring ? "Upcoming" : "Completed") as const,
+        const updates: Partial<MaintenanceItem> = {
+          status: item?.recurring ? "Upcoming" : "Completed",
           lastCompleted,
           nextDue,
         };
@@ -370,133 +489,203 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
           ...s,
           maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...updates } : m)),
         }));
-        const pid = state.maintenanceItems.find((m) => m.id === id)?.propertyId;
+        const pid = item?.propertyId;
         if (pid) bumpScore(pid);
-        if (userId) maintenanceService.updateMaintenanceItem(userId, id, updates).catch((e) => syncError("Complete maintenance", e));
-      },
-
-      addRepair: (r) => {
-        const newItem = { ...r, id: uuid() };
-        setState((s) => ({ ...s, repairs: [newItem, ...s.repairs] }));
-        bumpScore(r.propertyId);
-        if (userId) {
-          (async () => {
-            try {
-              let item = newItem;
-              if (r.receiptUri) {
-                const url = await uploadLocalFileIfNeeded(
-                  userId,
-                  bucketForRepairAsset("receipt"),
-                  r.receiptUri
-                );
-                if (url) item = { ...item, receiptUri: url };
-              }
-              if (r.photoUris?.length) {
-                const uploaded = await Promise.all(
-                  r.photoUris.map((uri) =>
-                    uploadLocalFileIfNeeded(userId, bucketForRepairAsset("photo"), uri)
-                  )
-                );
-                item = {
-                  ...item,
-                  photoUris: uploaded.filter((u): u is string => Boolean(u)),
-                };
-              }
-              const created = await repairService.createRepair(userId, item);
-              setState((s) => ({
-                ...s,
-                repairs: s.repairs.map((rp) => (rp.id === newItem.id ? created : rp)),
-              }));
-            } catch (e) {
-              syncError("Add repair", e);
-            }
-          })();
+        if (!isSignedIn) return;
+        try {
+          const userId = await requireAuthUserId();
+          await maintenanceService.updateMaintenanceItem(userId, id, updates);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
+            }));
+          }
+          throw e;
         }
       },
 
-      updateRepair: (id, r) => {
+      addRepair: async (r) => {
+        const newItem = { ...r, id: uuid() };
+        const prior = state.repairs;
+        setState((s) => ({ ...s, repairs: [newItem, ...s.repairs] }));
+        bumpScore(r.propertyId);
+        if (!isSignedIn) return newItem;
+        try {
+          const userId = await requireAuthUserId();
+          let item = newItem;
+          if (r.receiptUri) {
+            const url = await uploadLocalFileIfNeeded(userId, bucketForRepairAsset("receipt"), r.receiptUri);
+            if (url) item = { ...item, receiptUri: url };
+          }
+          if (r.photoUris?.length) {
+            const repairBucket = getPhotoBucket("repair");
+            const uploaded = await Promise.all(
+              r.photoUris.map((uri) => uploadLocalFileIfNeeded(userId, repairBucket, uri))
+            );
+            item = { ...item, photoUris: uploaded.filter((u): u is string => Boolean(u)) };
+          }
+          const created = await repairService.createRepair(userId, item);
+          setState((s) => ({
+            ...s,
+            repairs: s.repairs.map((rp) => (rp.id === newItem.id ? created : rp)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, repairs: prior }));
+          throw e;
+        }
+      },
+
+      updateRepair: async (id, r) => {
+        const previous = state.repairs.find((rp) => rp.id === id);
         setState((s) => ({
           ...s,
           repairs: s.repairs.map((rp) => (rp.id === id ? { ...rp, ...r } : rp)),
         }));
-        const pid = state.repairs.find((rp) => rp.id === id)?.propertyId;
+        const pid = previous?.propertyId;
         if (pid) bumpScore(pid);
-        if (userId) repairService.updateRepair(userId, id, r).catch((e) => syncError("Update repair", e));
+        if (!isSignedIn) return;
+        try {
+          const userId = await requireAuthUserId();
+          await repairService.updateRepair(userId, id, r);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              repairs: s.repairs.map((rp) => (rp.id === id ? previous : rp)),
+            }));
+          }
+          throw e;
+        }
       },
 
       deleteRepair: (id) => {
         const pid = state.repairs.find((r) => r.id === id)?.propertyId;
         setState((s) => ({ ...s, repairs: s.repairs.filter((r) => r.id !== id) }));
         if (pid) bumpScore(pid);
-        if (userId) repairService.deleteRepair(userId, id).catch((e) => syncError("Delete repair", e));
-      },
-
-      addAppliance: (a) => {
-        const newItem = { ...a, id: uuid() };
-        setState((s) => ({ ...s, appliances: [newItem, ...s.appliances] }));
-        bumpScore(a.propertyId);
-        if (userId) {
-          applianceService.createAppliance(userId, newItem).then((created) => {
-            setState((s) => ({
-              ...s,
-              appliances: s.appliances.map((ap) => (ap.id === newItem.id ? created : ap)),
-            }));
-          }).catch((e) => syncError("Add appliance", e));
+        if (isSignedIn) {
+          void requireAuthUserId()
+            .then((userId) => repairService.deleteRepair(userId, id))
+            .catch((e) => syncError("Delete repair", e));
         }
       },
 
-      updateAppliance: (id, a) => {
+      addAppliance: async (a) => {
+        const displayName = (a.name ?? "").trim();
+        if (!displayName) {
+          throw new Error("Appliance name is required.");
+        }
+        const newItem = { ...a, id: uuid(), name: displayName };
+        const prior = state.appliances;
+        setState((s) => ({ ...s, appliances: [newItem, ...s.appliances] }));
+        bumpScore(a.propertyId);
+        if (!isSignedIn) return newItem;
+        try {
+          const userId = await requireAuthUserId();
+          const created = await applianceService.createAppliance(userId, newItem);
+          setState((s) => ({
+            ...s,
+            appliances: s.appliances.map((ap) => (ap.id === newItem.id ? created : ap)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, appliances: prior }));
+          throw e;
+        }
+      },
+
+      updateAppliance: async (id, a) => {
+        const previous = state.appliances.find((ap) => ap.id === id);
         setState((s) => ({
           ...s,
           appliances: s.appliances.map((ap) => (ap.id === id ? { ...ap, ...a } : ap)),
         }));
-        const pid = state.appliances.find((ap) => ap.id === id)?.propertyId;
+        const pid = previous?.propertyId;
         if (pid) bumpScore(pid);
-        if (userId) applianceService.updateAppliance(userId, id, a).catch((e) => syncError("Update appliance", e));
+        if (!isSignedIn) return;
+        try {
+          const userId = await requireAuthUserId();
+          await applianceService.updateAppliance(userId, id, a);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              appliances: s.appliances.map((ap) => (ap.id === id ? previous : ap)),
+            }));
+          }
+          throw e;
+        }
       },
 
       deleteAppliance: (id) => {
         const pid = state.appliances.find((a) => a.id === id)?.propertyId;
         setState((s) => ({ ...s, appliances: s.appliances.filter((a) => a.id !== id) }));
         if (pid) bumpScore(pid);
-        if (userId) applianceService.deleteAppliance(userId, id).catch((e) => syncError("Delete appliance", e));
-      },
-
-      addDocument: (d) => {
-        const newDoc = { ...d, id: uuid() };
-        setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
-        bumpScore(d.propertyId);
-        if (userId) {
-          (async () => {
-            try {
-              let doc = newDoc;
-              if (d.fileUri) {
-                const bucket = bucketForDocumentCategory(d.category);
-                const url = await uploadLocalFileIfNeeded(userId, bucket, d.fileUri);
-                if (url) doc = { ...doc, fileUri: url };
-              }
-              const created = await vaultService.createVaultDocument(userId, doc);
-              setState((s) => ({
-                ...s,
-                documents: s.documents.map((docItem) => (docItem.id === newDoc.id ? created : docItem)),
-              }));
-            } catch (e) {
-              syncError("Add document", e);
-            }
-          })();
+        if (isSignedIn) {
+          void requireAuthUserId()
+            .then((userId) => applianceService.deleteAppliance(userId, id))
+            .catch((e) => syncError("Delete appliance", e));
         }
       },
 
-      updateDocument: (id, d) => {
+      addDocument: async (d) => {
+        const title = (d.title ?? "").trim();
+        const propertyId = (d.propertyId ?? "").trim();
+        if (!title) throw new Error("Document title is required.");
+        if (!propertyId) throw new Error("Property is required.");
+        if (!d.fileUri?.trim()) throw new Error("Please choose a file before saving.");
+
+        const newDoc = { ...d, id: uuid(), title, propertyId };
+        const prior = state.documents;
+        setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
+        bumpScore(propertyId);
+        if (!isSignedIn) return newDoc;
+        try {
+          const userId = await requireAuthUserId();
+          let doc = newDoc;
+          if (!isRemoteUri(d.fileUri)) {
+            const bucket = bucketForDocumentCategory(d.category);
+            const url = await uploadLocalFileIfNeeded(
+              userId,
+              bucket,
+              d.fileUri,
+              title || undefined
+            );
+            if (!url?.trim()) {
+              throw new Error("File upload failed. Please try again.");
+            }
+            doc = { ...doc, fileUri: url };
+          }
+          const created = await vaultService.createVaultDocument(userId, doc);
+          setState((s) => ({
+            ...s,
+            documents: s.documents.map((docItem) => (docItem.id === newDoc.id ? created : docItem)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, documents: prior }));
+          throw e;
+        }
+      },
+
+      updateDocument: async (id, d) => {
+        const previous = state.documents.find((docItem) => docItem.id === id);
         setState((s) => ({
           ...s,
           documents: s.documents.map((doc) => (doc.id === id ? { ...doc, ...d } : doc)),
         }));
-        if (userId) {
-          const doc = state.documents.find((docItem) => docItem.id === id);
-          if (doc) {
-            vaultService.updateVaultDocument(userId, { ...doc, ...d }).catch((e) => syncError("Update document", e));
-          }
+        if (!isSignedIn || !previous) return;
+        try {
+          const userId = await requireAuthUserId();
+          await vaultService.updateVaultDocument(userId, { ...previous, ...d });
+        } catch (e) {
+          setState((s) => ({
+            ...s,
+            documents: s.documents.map((doc) => (doc.id === id ? previous : doc)),
+          }));
+          throw e;
         }
       },
 
@@ -505,73 +694,153 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
         const pid = doc?.propertyId;
         setState((s) => ({ ...s, documents: s.documents.filter((d) => d.id !== id) }));
         if (pid) bumpScore(pid);
-        if (userId && doc) vaultService.deleteVaultDocument(userId, doc).catch((e) => syncError("Delete document", e));
+        if (isSignedIn && doc) {
+          void requireAuthUserId()
+            .then((userId) => vaultService.deleteVaultDocument(userId, doc))
+            .catch((e) => syncError("Delete document", e));
+        }
       },
 
-      addPaintColor: (p) => {
+      addPaintColor: async (p) => {
         const newItem = { ...p, id: uuid() };
+        const prior = state.paintColors;
         setState((s) => ({ ...s, paintColors: [newItem, ...s.paintColors] }));
-        if (userId) {
-          vaultService.createPaintColor(userId, newItem as unknown as Record<string, unknown>).catch((e) => syncError("Add paint", e));
+        if (!isSignedIn) return newItem;
+        try {
+          const userId = await requireAuthUserId();
+          const created = await vaultService.createPaintColor(userId, newItem);
+          setState((s) => ({
+            ...s,
+            paintColors: s.paintColors.map((pc) => (pc.id === newItem.id ? created : pc)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, paintColors: prior }));
+          throw e;
         }
       },
 
       deletePaintColor: (id) => {
         setState((s) => ({ ...s, paintColors: s.paintColors.filter((p) => p.id !== id) }));
-        if (userId) vaultService.deletePaintColor(userId, id).catch((e) => syncError("Delete paint", e));
-      },
-
-      addContractor: (c) => {
-        const newItem = { ...c, id: uuid() };
-        setState((s) => ({ ...s, contractors: [newItem, ...s.contractors] }));
-        if (userId) {
-          vaultService.createContractor(userId, newItem as unknown as Record<string, unknown>).catch((e) => syncError("Add contractor", e));
+        if (isSignedIn) {
+          void requireAuthUserId()
+            .then((userId) => vaultService.deletePaintColor(userId, id))
+            .catch((e) => syncError("Delete paint", e));
         }
       },
 
-      updateContractor: (id, c) => {
+      addContractor: async (c) => {
+        const newItem = { ...c, id: uuid() };
+        const prior = state.contractors;
+        setState((s) => ({ ...s, contractors: [newItem, ...s.contractors] }));
+        if (!isSignedIn) return newItem;
+        try {
+          const userId = await requireAuthUserId();
+          const created = await vaultService.createContractor(userId, newItem);
+          setState((s) => ({
+            ...s,
+            contractors: s.contractors.map((ct) => (ct.id === newItem.id ? created : ct)),
+          }));
+          return created;
+        } catch (e) {
+          setState((s) => ({ ...s, contractors: prior }));
+          throw e;
+        }
+      },
+
+      updateContractor: async (id, c) => {
+        const previous = state.contractors.find((ct) => ct.id === id);
         setState((s) => ({
           ...s,
           contractors: s.contractors.map((ct) => (ct.id === id ? { ...ct, ...c } : ct)),
         }));
-        if (userId) vaultService.updateContractor(userId, id, c as Record<string, unknown>).catch((e) => syncError("Update contractor", e));
+        if (!isSignedIn) return;
+        try {
+          const userId = await requireAuthUserId();
+          await vaultService.updateContractor(userId, id, c);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              contractors: s.contractors.map((ct) => (ct.id === id ? previous : ct)),
+            }));
+          }
+          throw e;
+        }
       },
 
       deleteContractor: (id) => {
         setState((s) => ({ ...s, contractors: s.contractors.filter((c) => c.id !== id) }));
-        if (userId) vaultService.deleteContractor(userId, id).catch((e) => syncError("Delete contractor", e));
+        if (isSignedIn) {
+          void requireAuthUserId()
+            .then((userId) => vaultService.deleteContractor(userId, id))
+            .catch((e) => syncError("Delete contractor", e));
+        }
       },
 
-      addPhoto: (p) => {
-        const newItem = { ...p, id: uuid() };
+      addPhoto: async (p) => {
+        const propertyId = (p.propertyId ?? "").trim();
+        if (!propertyId) throw new Error("Property is required.");
+        if (!p.uri?.trim()) throw new Error("Please choose a photo first.");
+
+        const newItem = { ...p, id: uuid(), propertyId };
+        const prior = state.photos;
+        if (!isSignedIn) {
+          setState((s) => ({ ...s, photos: [newItem, ...s.photos] }));
+          return newItem;
+        }
+
         setState((s) => ({ ...s, photos: [newItem, ...s.photos] }));
-        if (userId) {
-          (async () => {
-            try {
-              let photo = newItem;
-              if (p.uri) {
-                const url = await uploadLocalFileIfNeeded(
-                  userId,
-                  bucketForPropertyPhoto(),
-                  p.uri
-                );
-                if (url) photo = { ...photo, uri: url };
-              }
-              const created = await vaultService.createPhoto(userId, photo);
-              setState((s) => ({
-                ...s,
-                photos: s.photos.map((ph) => (ph.id === newItem.id ? created : ph)),
-              }));
-            } catch (e) {
-              syncError("Add photo", e);
-            }
-          })();
+        try {
+          await photoService.savePhoto({
+            id: newItem.id,
+            propertyId: newItem.propertyId,
+            uri: newItem.uri,
+            caption: newItem.caption,
+            date: newItem.date,
+            category: newItem.category,
+            photoType: p.photoType ?? photoKindFromCategory(p.category),
+          });
+
+          const refreshed = await photoService.fetchPhotos();
+          setState((s) => ({ ...s, photos: refreshed }));
+
+          const saved = refreshed.find((ph) => ph.id === newItem.id);
+          if (!saved) {
+            throw new Error("Photo saved but could not be loaded. Pull to refresh.");
+          }
+          return saved;
+        } catch (e) {
+          setState((s) => ({ ...s, photos: prior }));
+          throw e;
         }
       },
 
       deletePhoto: (id) => {
         setState((s) => ({ ...s, photos: s.photos.filter((p) => p.id !== id) }));
-        if (userId) vaultService.deletePhoto(userId, id).catch((e) => syncError("Delete photo", e));
+        if (isSignedIn) {
+          void photoService.deletePhoto(id).catch((e) => syncError("Delete photo", e));
+        }
+      },
+
+      updatePhoto: async (id, updates) => {
+        const previous = state.photos.find((p) => p.id === id);
+        setState((s) => ({
+          ...s,
+          photos: s.photos.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+        }));
+        if (!isSignedIn) return;
+        try {
+          await photoService.updatePhoto(id, updates);
+        } catch (e) {
+          if (previous) {
+            setState((s) => ({
+              ...s,
+              photos: s.photos.map((p) => (p.id === id ? previous : p)),
+            }));
+          }
+          throw e;
+        }
       },
 
       getPropertyScore,
@@ -585,7 +854,7 @@ export function HomeWiseProvider({ children, userId }: { children: ReactNode; us
         refreshData();
       },
     };
-  }, [state, userId, isLoading, loadError, refreshData, scoreMap, persistScore, syncError]);
+  }, [state, isSignedIn, isLoading, loadError, refreshData, scoreMap, persistScore, syncError, selectProperty]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
