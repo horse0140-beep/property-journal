@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase";
+import { isMissingSchemaError } from "@/lib/dbErrors";
+import { isInsertOkSelectFailed } from "@/lib/realSaveError";
 
 export { isInsertOkSelectFailed } from "@/lib/realSaveError";
 
@@ -189,4 +191,60 @@ export async function recoverRowAfterLikelyInsert(
 ): Promise<Record<string, unknown> | null> {
   console.warn("[SAVE INSERT RECOVER FETCH]", { table, id, reason });
   return fetchInsertedRow(table, id, userId);
+}
+
+type InsertWriteError = { code?: string; message?: string } | null;
+
+/**
+ * Resolve an insert().select().single() response without failing after a confirmed insert.
+ * Returns mapped row data when the write succeeded (even if SELECT returned nothing).
+ */
+export async function resolveInsertedRow<T>(
+  table: string,
+  id: string,
+  userId: string,
+  data: Record<string, unknown> | null | undefined,
+  error: InsertWriteError,
+  fallback: T,
+  mapRow: (row: Record<string, unknown>) => T
+): Promise<{ ok: true; value: T } | { ok: false; error: NonNullable<InsertWriteError> }> {
+  if (!error) {
+    if (data) {
+      return { ok: true, value: mapRow(data) };
+    }
+    console.warn("[SAVE INSERT OK MISSING SELECT ROW]", { table, id });
+    const fetched = await fetchInsertedRow(table, id, userId);
+    if (fetched) return { ok: true, value: mapRow(fetched) };
+    return { ok: true, value: fallback };
+  }
+
+  if (isInsertOkSelectFailed(error)) {
+    const fetched = await recoverRowAfterLikelyInsert(table, id, userId, "PGRST116");
+    if (fetched) return { ok: true, value: mapRow(fetched) };
+    return { ok: true, value: fallback };
+  }
+
+  if (isDuplicateKeyError(error)) {
+    const fetched = await recoverRowAfterLikelyInsert(table, id, userId, "23505");
+    if (fetched) return { ok: true, value: mapRow(fetched) };
+    return { ok: true, value: fallback };
+  }
+
+  const fetched = await fetchInsertedRow(table, id, userId);
+  if (fetched) {
+    console.warn("[SAVE INSERT RECOVERED AFTER ERROR]", {
+      table,
+      id,
+      error: formatSaveError(error),
+    });
+    return { ok: true, value: mapRow(fetched) };
+  }
+
+  return { ok: false, error };
+}
+
+/** True when the error means the insert did not happen (safe to retry with a trimmed payload). */
+export function isRetryableInsertSchemaError(error: InsertWriteError): boolean {
+  if (!error?.message) return false;
+  return isMissingSchemaError(error.message);
 }

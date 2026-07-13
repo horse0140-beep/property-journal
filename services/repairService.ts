@@ -2,9 +2,9 @@ import { supabase } from "@/lib/supabase";
 import { REPAIR_OPTIONAL_COLUMNS, omitMissingOptionalColumn } from "@/lib/dbErrors";
 import {
   fetchInsertedRow,
-  isDuplicateKeyError,
   isInsertOkSelectFailed,
-  recoverRowAfterLikelyInsert,
+  isRetryableInsertSchemaError,
+  resolveInsertedRow,
   runSaveWithRetry,
 } from "@/lib/saveReliability";
 import {
@@ -41,35 +41,36 @@ async function insertRepairRow(userId: string, item: Repair): Promise<Repair> {
       .select()
       .single();
 
-    if (!error) {
+    const resolved = await resolveInsertedRow(
+      "repairs",
+      item.id,
+      userId,
+      data as Record<string, unknown> | null,
+      error,
+      item,
+      rowToRepair
+    );
+    if (resolved.ok) {
       console.log("[REPAIR SAVE SUCCESS]", {
         payload,
-        response: data,
+        response: resolved.value,
         elapsedMs: Date.now() - startedAt,
       });
-      return rowToRepair(data!);
+      return resolved.value;
     }
 
-    if (isInsertOkSelectFailed(error)) {
-      const fetched = await recoverRowAfterLikelyInsert("repairs", item.id, userId, "PGRST116");
-      if (fetched) return rowToRepair(fetched);
-      return item;
-    }
-
-    if (isDuplicateKeyError(error)) {
-      const fetched = await recoverRowAfterLikelyInsert("repairs", item.id, userId, "23505");
-      if (fetched) return rowToRepair(fetched);
-      return item;
-    }
-
-    const next = omitMissingOptionalColumn(payload, error.message, REPAIR_OPTIONAL_COLUMNS);
-    if (next) {
+    const insertError = resolved.error;
+    const next = omitMissingOptionalColumn(payload, insertError.message ?? "", REPAIR_OPTIONAL_COLUMNS);
+    if (next && isRetryableInsertSchemaError(insertError)) {
       payload = next;
       continue;
     }
 
-    logRepairSaveFailed(payload, error, startedAt, error);
-    throw attachSupabaseErrorFields(error);
+    logRepairSaveFailed(payload, insertError, startedAt, insertError);
+    throw attachSupabaseErrorFields({
+      message: insertError.message ?? "Repair insert failed.",
+      code: insertError.code,
+    });
   }
 }
 

@@ -2,9 +2,9 @@ import { supabase } from "@/lib/supabase";
 import { MAINTENANCE_OPTIONAL_COLUMNS, omitMissingOptionalColumn } from "@/lib/dbErrors";
 import {
   fetchInsertedRow,
-  isDuplicateKeyError,
   isInsertOkSelectFailed,
-  recoverRowAfterLikelyInsert,
+  isRetryableInsertSchemaError,
+  resolveInsertedRow,
   runSaveWithRetry,
 } from "@/lib/saveReliability";
 import {
@@ -45,35 +45,36 @@ async function insertMaintenanceRow(
       .select()
       .single();
 
-    if (!error) {
+    const resolved = await resolveInsertedRow(
+      "maintenance_items",
+      item.id,
+      userId,
+      data as Record<string, unknown> | null,
+      error,
+      item,
+      rowToMaintenance
+    );
+    if (resolved.ok) {
       console.log("[MAINTENANCE SAVE SUCCESS]", {
         payload,
-        response: data,
+        response: resolved.value,
         elapsedMs: Date.now() - startedAt,
       });
-      return rowToMaintenance(data!);
+      return resolved.value;
     }
 
-    if (isInsertOkSelectFailed(error)) {
-      const fetched = await recoverRowAfterLikelyInsert("maintenance_items", item.id, userId, "PGRST116");
-      if (fetched) return rowToMaintenance(fetched);
-      return item;
-    }
-
-    if (isDuplicateKeyError(error)) {
-      const fetched = await recoverRowAfterLikelyInsert("maintenance_items", item.id, userId, "23505");
-      if (fetched) return rowToMaintenance(fetched);
-      return item;
-    }
-
-    const next = omitMissingOptionalColumn(payload, error.message, MAINTENANCE_OPTIONAL_COLUMNS);
-    if (next) {
+    const insertError = resolved.error;
+    const next = omitMissingOptionalColumn(payload, insertError.message ?? "", MAINTENANCE_OPTIONAL_COLUMNS);
+    if (next && isRetryableInsertSchemaError(insertError)) {
       payload = next;
       continue;
     }
 
-    logMaintenanceSaveFailed(payload, error, startedAt, error);
-    throw attachSupabaseErrorFields(error);
+    logMaintenanceSaveFailed(payload, insertError, startedAt, insertError);
+    throw attachSupabaseErrorFields({
+      message: insertError.message ?? "Maintenance insert failed.",
+      code: insertError.code,
+    });
   }
 }
 
