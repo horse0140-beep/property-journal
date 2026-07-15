@@ -1,6 +1,6 @@
 import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/constants/theme";
+import { colors, hitSlopDefault } from "@/constants/theme";
 
 type Props = {
   title: string;
@@ -26,10 +26,13 @@ export function Header({ title, subtitle, onBack, rightAction }: Props) {
       {onBack && (
         <Pressable
           onPress={onBack}
+          hitSlop={hitSlopDefault}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             backgroundColor: colors.bgSection,
             alignItems: "center",
             justifyContent: "center",
@@ -47,10 +50,13 @@ export function Header({ title, subtitle, onBack, rightAction }: Props) {
       {rightAction && (
         <Pressable
           onPress={rightAction.onPress}
+          hitSlop={hitSlopDefault}
+          accessibilityRole="button"
+          accessibilityLabel={rightAction.icon}
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             backgroundColor: colors.bgSection,
             alignItems: "center",
             justifyContent: "center",

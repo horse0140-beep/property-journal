@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   KeyboardAvoidingView, Platform, ScrollView, Text, View,
   TextInput, Pressable, ActivityIndicator,
 } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { colors, styles } from "@/constants/theme";
@@ -34,6 +35,7 @@ const SUGGESTIONS = [
 
 export default function AIScreen() {
   const ctx = useHomeWise();
+  const { prompt: initialPrompt } = useLocalSearchParams<{ prompt?: string }>();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -43,6 +45,12 @@ export default function AIScreen() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (initialPrompt && typeof initialPrompt === "string") {
+      setInput(initialPrompt);
+    }
+  }, [initialPrompt]);
 
   function buildContext() {
     const pid = ctx.selectedProperty?.id;
@@ -119,6 +127,20 @@ ${ctx.contractors.map((c) => `- ${c.name}: ${c.trade}, ${c.phone}, Rating: ${c.r
       });
 
       const data = await res.json();
+
+      if (!res.ok) {
+        const apiMessage = data?.error?.message ?? `Request failed (${res.status}).`;
+        console.warn("[AI] Anthropic API error:", res.status, apiMessage);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "The AI assistant is temporarily unavailable. Please try again in a moment.",
+          },
+        ]);
+        return;
+      }
+
       const reply =
         data.content?.map((b: any) => b.text ?? "").join("") ??
         "Sorry, I couldn't process that. Please try again.";

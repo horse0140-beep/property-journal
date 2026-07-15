@@ -72,7 +72,8 @@ export async function ensureAuthProfileRow(authUser: User): Promise<void> {
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to check profile: ${error.message}`);
+    // A transient select failure must not block auth — attempt the upsert anyway.
+    console.warn(`[auth] profile check failed (continuing to upsert): ${error.message}`);
   }
 
   if (data?.id === authUser.id) {

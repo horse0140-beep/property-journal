@@ -6,6 +6,7 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -106,6 +107,12 @@ export default function StripeBillingScreen() {
 
   async function handleSubscribe(planKey: PlanKey) {
     if (!user?.id || !user.email) return;
+    // Apple guideline 3.1.1 — digital subscriptions on iOS must use
+    // in-app purchase, never an external checkout link.
+    if (Platform.OS === "ios") {
+      Alert.alert("Subscriptions", "On iOS, subscriptions are handled through the App Store.");
+      return;
+    }
     setCheckoutPlan(planKey);
     const result = await openStripeCheckout(user.id, user.email, planKey);
     setCheckoutPlan(null);
@@ -271,7 +278,7 @@ export default function StripeBillingScreen() {
                       </View>
                     ))}
                   </View>
-                  {!isCurrent && (
+                  {!isCurrent && Platform.OS !== "ios" && (
                     <Pressable
                       style={[styles.primaryButton, checkoutPlan === key && { opacity: 0.7 }]}
                       onPress={() => handleSubscribe(key)}
@@ -286,6 +293,11 @@ export default function StripeBillingScreen() {
                         </>
                       )}
                     </Pressable>
+                  )}
+                  {!isCurrent && Platform.OS === "ios" && (
+                    <Text style={[styles.muted, { marginTop: 8 }]}>
+                      Subscriptions on iOS are available through the App Store.
+                    </Text>
                   )}
                 </Card>
               </Pressable>

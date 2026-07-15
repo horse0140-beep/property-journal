@@ -62,21 +62,18 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
-        name="maintenance"
+        name="appliances"
         options={{
-          title: "Maintain",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="construct-outline" size={size} color={color} />
-          ),
+          href: null,
         }}
       />
 
       <Tabs.Screen
-        name="appliances"
+        name="maintenance"
         options={{
-          title: "Appliances",
+          title: "Maintenance",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="hardware-chip-outline" size={size} color={color} />
+            <Ionicons name="construct-outline" size={size} color={color} />
           ),
         }}
       />

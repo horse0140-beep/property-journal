@@ -18,10 +18,11 @@ import { useHomeWise } from "@/context/HomeWiseContext";
 import {
   buildShareUrl,
   createPropertyShare,
-  deletePropertyShare,
   fetchPropertyShares,
+  revokePropertyShare,
   updatePropertyShare,
 } from "@/services/sharingService";
+import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
 
 export default function PropertySharingScreen() {
@@ -41,8 +42,9 @@ export default function PropertySharingScreen() {
     if (!user?.id) return;
     try {
       setShares(await fetchPropertyShares(user.id));
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
+    } catch (e: unknown) {
+      logTechnicalError("loadPropertyShares", e);
+      Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -108,8 +110,9 @@ export default function PropertySharingScreen() {
       }
       setModalOpen(false);
       await load();
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
+    } catch (e: unknown) {
+      logTechnicalError("savePropertyShare", e);
+      Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_create"));
     } finally {
       setSaving(false);
     }
@@ -130,8 +133,13 @@ export default function PropertySharingScreen() {
         text: "Revoke",
         style: "destructive",
         onPress: async () => {
-          await deletePropertyShare(share.id);
-          await load();
+          try {
+            await revokePropertyShare(share.id);
+            await load();
+          } catch (e: unknown) {
+            logTechnicalError("revokePropertyShare", e);
+            Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_revoke"));
+          }
         },
       },
     ]);
@@ -165,7 +173,7 @@ export default function PropertySharingScreen() {
                 <Ionicons name="share-social-outline" size={48} color={colors.textMuted} />
                 <Text style={styles.emptyStateTitle}>No shares yet</Text>
                 <Text style={styles.emptyStateText}>
-                  Create a link to share your property's maintenance history, health score, and repair records.
+                  Create a link to share your property&apos;s maintenance history, health score, and repair records.
                 </Text>
                 <Pressable style={[styles.primaryButton, { alignSelf: "stretch" }]} onPress={openCreate}>
                   <Text style={styles.primaryButtonText}>Create Share Link</Text>

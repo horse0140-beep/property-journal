@@ -120,12 +120,12 @@ export default function NotificationSettingsScreen() {
         );
         return;
       }
-      if (user?.id) await registerPushToken(user.id).catch(() => {});
+      await registerPushToken().catch(() => {});
     }
 
     if (key === "notificationsEnabled" && !value) {
       await cancelAllNotifications();
-      if (user?.id) await unregisterPushTokens(user.id).catch(() => {});
+      await unregisterPushTokens().catch(() => {});
     }
 
     const result = await updateProfile({ [key]: value });
@@ -143,14 +143,21 @@ export default function NotificationSettingsScreen() {
 
   async function handleTestNotification() {
     setTesting(true);
-    const ok = await sendTestNotification();
-    setTesting(false);
-
-    if (!ok) {
+    try {
+      const ok = await sendTestNotification();
+      if (!ok) {
+        Alert.alert(
+          "Notifications Disabled",
+          "Allow notification permission in your device settings first."
+        );
+      }
+    } catch (e) {
       Alert.alert(
-        "Notifications Disabled",
-        "Allow notification permission in your device settings first."
+        "Test Failed",
+        e instanceof Error ? e.message : "Could not schedule the test notification."
       );
+    } finally {
+      setTesting(false);
     }
   }
 

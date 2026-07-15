@@ -3,39 +3,77 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, styles } from "@/constants/theme";
 import { useTabScrollContentStyle } from "@/constants/layout";
 import { LoadingView } from "@/components/LoadingView";
+import { EmptyState } from "@/components/EmptyState";
 import { ErrorCard } from "@/components/ErrorCard";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
 import type { PremiumFeature } from "@/lib/premium";
-import { scheduleMaintenanceNotifications, scheduleWarrantyNotifications } from "@/lib/notifications";
+import { PhotoCard } from "@/components/PhotoCard";
+import {
+  parseDueDate,
+  scheduleMaintenanceNotifications,
+  scheduleWarrantyNotifications,
+} from "@/lib/notifications";
 
-// Quick actions all route to real existing screens
-// "Add Repair", "Add Receipt", "Add Appliance" deep-link into the Maintenance tab
-// with a flag to open the correct modal via URL params
 const QUICK_ACTIONS = [
-  { label: "Add Repair",      icon: "construct-outline",     route: "/(tabs)/maintenance",  color: "#EEF4FF" },
-  { label: "Add Receipt",     icon: "receipt-outline",       route: "/(tabs)/vault",        color: "#F0FFF4" },
-  { label: "Add Appliance",   icon: "hardware-chip-outline", route: "/(tabs)/maintenance",  color: "#FFF8EE" },
-  { label: "Upload Document", icon: "folder-open-outline",   route: "/(tabs)/vault",        color: "#F0F4FF" },
-  { label: "Take Photo",      icon: "camera-outline",        route: "/vault/photos",        color: "#FFF0F0" },
-  { label: "Ask AI",          icon: "sparkles-outline",      route: "/ai",                  color: "#F5F0FF" },
+  { label: "Property Record", icon: "home-outline", section: "overview", color: "#EEF4FF" },
+  { label: "Maintenance", icon: "construct-outline", section: "maintenance", color: "#FFF8EE" },
+  { label: "Documents", icon: "folder-open-outline", section: "documents", color: "#F0F4FF" },
+  { label: "Photos", icon: "camera-outline", section: "photos", color: "#FFF0F0" },
+  { label: "Ask AI", icon: "sparkles-outline", route: "/ai", color: "#F5F0FF" },
 ] as const;
 
-function QuickActionBtn({ label, icon, route, color }: (typeof QUICK_ACTIONS)[number]) {
+function QuickActionBtn({
+  label,
+  icon,
+  section,
+  tab,
+  route,
+  color,
+  propertyId,
+}: {
+  label: string;
+  icon: string;
+  section?: string;
+  tab?: string;
+  route?: string;
+  color: string;
+  propertyId?: string;
+}) {
+  function onPress() {
+    if (route) {
+      router.push(route as "/ai");
+      return;
+    }
+    if (!propertyId) {
+      router.push("/(tabs)/properties");
+      return;
+    }
+    if (section) {
+      const query = tab ? `?section=${section}&tab=${tab}` : `?section=${section}`;
+      router.push(`/properties/${propertyId}${query}`);
+      return;
+    }
+    router.push(`/properties/${propertyId}`);
+  }
+
   return (
     <Pressable
-      onPress={() => router.push(route as any)}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ pressed }) => ({
-        flex: 1,
-        minWidth: 70,
+        width: "32%",
         alignItems: "center",
+        marginBottom: 14,
         opacity: pressed ? 0.75 : 1,
+        minHeight: 88,
       })}
     >
       <View style={{
@@ -46,7 +84,10 @@ function QuickActionBtn({ label, icon, route, color }: (typeof QUICK_ACTIONS)[nu
       }}>
         <Ionicons name={icon as any} size={24} color={colors.primary} />
       </View>
-      <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: "600", marginTop: 6, textAlign: "center" }}>
+      <Text
+        style={{ color: colors.textSecondary, fontSize: 11, fontWeight: "600", marginTop: 6, textAlign: "center" }}
+        numberOfLines={2}
+      >
         {label}
       </Text>
     </Pressable>
@@ -70,6 +111,17 @@ export default function HomeScreen() {
   const { requireFeature } = useUpgrade();
   const insets = useSafeAreaInsets();
   const tabScrollStyle = useTabScrollContentStyle();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Content signatures so edits (not just adds/deletes) reschedule reminders.
+  const maintenanceSignature = useMemo(
+    () => maintenanceItems.map((m) => `${m.id}|${m.nextDue}|${m.status}`).join(","),
+    [maintenanceItems]
+  );
+  const documentSignature = useMemo(
+    () => documents.map((d) => `${d.id}|${d.expiresDate ?? ""}`).join(","),
+    [documents]
+  );
 
   // Schedule notifications whenever maintenance / doc data changes
   useEffect(() => {
@@ -84,7 +136,16 @@ export default function HomeScreen() {
     if (user.warrantyAlerts) {
       scheduleWarrantyNotifications(propDocs).catch(() => {});
     }
-  }, [selectedProperty?.id, maintenanceItems.length, documents.length, user?.notificationsEnabled]);
+    // Signatures stand in for the arrays; filtering happens inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedProperty?.id,
+    maintenanceSignature,
+    documentSignature,
+    user?.notificationsEnabled,
+    user?.maintenanceReminders,
+    user?.warrantyAlerts,
+  ]);
 
   if (isLoading) {
     return (
@@ -120,21 +181,14 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" />
           </Pressable>
         ) : null}
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32 }}>
-          <Ionicons name="home-outline" size={60} color={colors.textMuted} />
-          <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 16, textAlign: "center" }}>
-            No property added yet
-          </Text>
-          <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 8, textAlign: "center" }}>
-            Add your home to start tracking its health.
-          </Text>
-          <Pressable
-            style={[styles.primaryButton, { marginTop: 24, paddingHorizontal: 32 }]}
-            onPress={() => router.push("/(tabs)/properties")}
-          >
-            <Text style={styles.primaryButtonText}>Add Your Home</Text>
-          </Pressable>
-        </View>
+        <EmptyState
+          icon="home-outline"
+          title="No property added yet"
+          message="Add your home to start tracking maintenance, documents, and your Home Health Score."
+          actionLabel="Add Your Home"
+          onAction={() => router.push("/(tabs)/properties")}
+          compact
+        />
       </View>
     );
   }
@@ -153,22 +207,31 @@ export default function HomeScreen() {
     })
     .slice(0, 3);
 
+  const propertyId = selectedProperty.id;
+  // Only warranties actually expiring within 60 days count as "expiring soon".
+  const expiringWarranties = propDocs.filter((d) => {
+    if (d.category !== "warranty" || !d.expiresDate) return false;
+    const expiry = parseDueDate(d.expiresDate);
+    if (!expiry) return false;
+    const days = (expiry.getTime() - Date.now()) / 86400000;
+    return days >= 0 && days <= 60;
+  });
   const alerts = [
-    propDocs.filter((d) => d.category === "warranty" && d.expiresDate).length > 0 && {
+    expiringWarranties.length > 0 && {
       icon: "shield-checkmark-outline",
       color: colors.dangerBg,
       iconColor: colors.danger,
-      text: `${propDocs.filter((d) => d.category === "warranty" && d.expiresDate).length} Warranties Expiring Soon`,
+      text: `${expiringWarranties.length} Warrant${expiringWarranties.length > 1 ? "ies" : "y"} Expiring Soon`,
       sub: "See details",
-      route: "/(tabs)/vault",
+      route: `/properties/${propertyId}?section=documents`,
     },
-    appliances.filter((a) => a.propertyId === selectedProperty.id && ["Poor", "Replace Soon", "Fair"].includes(a.condition)).length > 0 && {
+    appliances.filter((a) => a.propertyId === propertyId && ["Poor", "Replace Soon", "Fair"].includes(a.condition)).length > 0 && {
       icon: "warning-outline",
       color: colors.warningBg,
       iconColor: colors.warning,
       text: "Appliance Needs Attention",
       sub: "Check now",
-      route: "/(tabs)/maintenance",
+      route: `/properties/${propertyId}?section=maintenance&tab=appliances`,
     },
     propMaintenance.filter((m) => m.status === "Overdue").length > 0 && {
       icon: "time-outline",
@@ -176,9 +239,9 @@ export default function HomeScreen() {
       iconColor: colors.info,
       text: `${propMaintenance.filter((m) => m.status === "Overdue").length} Overdue Maintenance Task${propMaintenance.filter((m) => m.status === "Overdue").length > 1 ? "s" : ""}`,
       sub: "View now",
-      route: "/(tabs)/maintenance",
+      route: `/properties/${propertyId}?section=maintenance`,
     },
-  ].filter(Boolean) as any[];
+  ].filter(Boolean) as { icon: string; color: string; iconColor: string; text: string; sub: string; route: string }[];
 
   const SCORE_BREAKDOWN = [
     { label: "Maintenance", value: score.maintenance, icon: "construct-outline" },
@@ -272,7 +335,18 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={tabScrollStyle}
         refreshControl={
-          <RefreshControl refreshing={false} onRefresh={refreshData} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              try {
+                await refreshData();
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+            tintColor={colors.primary}
+          />
         }
       >
         {loadError ? (
@@ -285,7 +359,8 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => router.push("/admin")}
             style={{
-              margin: 16,
+              marginHorizontal: 16,
+              marginTop: 16,
               marginBottom: 0,
               backgroundColor: colors.primary,
               borderRadius: 16,
@@ -331,9 +406,9 @@ export default function HomeScreen() {
                 <Text style={{ color: "#fff", fontSize: 24, fontWeight: "900", lineHeight: 28 }}>
                   {selectedProperty.address}
                 </Text>
-                <Pressable onPress={() => router.push("/(tabs)/properties")}>
+                <Pressable onPress={() => router.push(`/properties/${propertyId}`)}>
                   <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, marginTop: 4 }}>
-                    {selectedProperty.city}, {selectedProperty.state} {selectedProperty.zip}  ✏️
+                    {selectedProperty.city}, {selectedProperty.state} {selectedProperty.zip} · Open record
                   </Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 18, marginTop: 14 }}>
@@ -424,21 +499,21 @@ export default function HomeScreen() {
         {/* ── Quick actions ────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
           <Text style={styles.sectionHeader}>Quick Actions</Text>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
             {QUICK_ACTIONS.map((a) => (
-              <QuickActionBtn key={a.label} {...a} />
+              <QuickActionBtn key={a.label} {...a} propertyId={selectedProperty?.id} />
             ))}
           </View>
         </View>
 
-        {/* ── Upcoming tasks + Alerts side by side ─────────────── */}
-        <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 12, marginBottom: 16 }}>
+        {/* ── Upcoming tasks + Alerts (stacked to avoid overflow) ── */}
+        <View style={{ paddingHorizontal: 16, gap: 16, marginBottom: 16 }}>
 
           {/* Upcoming Tasks */}
-          <View style={{ flex: 1 }}>
+          <View style={{ minWidth: 0 }}>
             <View style={styles.sectionLabelRow}>
               <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: "800" }}>UPCOMING TASKS</Text>
-              <Pressable onPress={() => router.push("/(tabs)/maintenance")}>
+              <Pressable onPress={() => router.push(`/properties/${selectedProperty.id}?section=maintenance`)}>
                 <Text style={styles.viewAllText}>View All</Text>
               </Pressable>
             </View>
@@ -454,7 +529,7 @@ export default function HomeScreen() {
                   return (
                     <Pressable
                       key={task.id}
-                      onPress={() => router.push("/(tabs)/maintenance")}
+                      onPress={() => router.push(`/properties/${propertyId}?section=maintenance`)}
                       style={{
                         flexDirection: "row", alignItems: "center", gap: 8, padding: 11,
                         borderBottomWidth: i < upcomingTasks.length - 1 ? 1 : 0,
@@ -476,7 +551,7 @@ export default function HomeScreen() {
                 })
               )}
               <Pressable
-                onPress={() => router.push("/(tabs)/maintenance")}
+                onPress={() => router.push(`/properties/${propertyId}?section=maintenance`)}
                 style={{ padding: 9, alignItems: "center", backgroundColor: colors.bgSection }}
               >
                 <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 11 }}>
@@ -487,10 +562,10 @@ export default function HomeScreen() {
           </View>
 
           {/* Alerts */}
-          <View style={{ flex: 1 }}>
+          <View style={{ minWidth: 0 }}>
             <View style={styles.sectionLabelRow}>
               <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: "800" }}>ALERTS</Text>
-              <Pressable onPress={() => router.push("/(tabs)/vault")}>
+              <Pressable onPress={() => router.push(`/properties/${propertyId}?section=documents`)}>
                 <Text style={styles.viewAllText}>View All</Text>
               </Pressable>
             </View>
@@ -523,7 +598,7 @@ export default function HomeScreen() {
                 ))
               )}
               <Pressable
-                onPress={() => router.push("/(tabs)/vault")}
+                onPress={() => router.push(`/properties/${propertyId}?section=documents`)}
                 style={{ padding: 9, alignItems: "center", backgroundColor: colors.bgSection }}
               >
                 <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 11 }}>
@@ -558,13 +633,13 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ── Recent Repairs + Documents ────────────────────────── */}
-        <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 12, marginBottom: 16 }}>
+        {/* ── Recent Repairs + Documents (stacked) ─────────────── */}
+        <View style={{ paddingHorizontal: 16, gap: 16, marginBottom: 16 }}>
 
-          <View style={{ flex: 1 }}>
+          <View style={{ minWidth: 0 }}>
             <View style={styles.sectionLabelRow}>
               <Text style={{ color: colors.textPrimary, fontWeight: "800", fontSize: 12 }}>RECENT REPAIRS</Text>
-              <Pressable onPress={() => router.push("/(tabs)/maintenance")}><Text style={styles.viewAllText}>All</Text></Pressable>
+              <Pressable onPress={() => router.push(`/properties/${selectedProperty.id}?section=maintenance`)}><Text style={styles.viewAllText}>All</Text></Pressable>
             </View>
             <View style={{ backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
               {propRepairs.length === 0 ? (
@@ -590,10 +665,10 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View style={{ flex: 1 }}>
+          <View style={{ minWidth: 0 }}>
             <View style={styles.sectionLabelRow}>
               <Text style={{ color: colors.textPrimary, fontWeight: "800", fontSize: 12 }}>RECENT DOCS</Text>
-              <Pressable onPress={() => router.push("/(tabs)/vault")}><Text style={styles.viewAllText}>All</Text></Pressable>
+              <Pressable onPress={() => router.push(`/properties/${propertyId}?section=documents`)}><Text style={styles.viewAllText}>All</Text></Pressable>
             </View>
             <View style={{ backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
               {propDocs.length === 0 ? (
@@ -619,7 +694,7 @@ export default function HomeScreen() {
         <View style={{ paddingHorizontal: 16 }}>
           <View style={styles.sectionLabelRow}>
             <Text style={styles.sectionHeader}>Recent Photos</Text>
-            <Pressable onPress={() => router.push("/vault/photos")}>
+            <Pressable onPress={() => router.push(`/properties/${propertyId}?section=photos`)}>
               <Text style={styles.viewAllText}>View All</Text>
             </Pressable>
           </View>
@@ -627,24 +702,19 @@ export default function HomeScreen() {
             <View style={{ backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 20, alignItems: "center" }}>
               <Ionicons name="images-outline" size={32} color={colors.textMuted} />
               <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>No photos yet</Text>
-              <Pressable onPress={() => router.push("/vault/photos")}
+              <Pressable onPress={() => router.push(`/properties/${propertyId}?section=photos`)}
                 style={{ marginTop: 10, backgroundColor: colors.bgSection, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Add Photo</Text>
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>View Photos</Text>
               </Pressable>
             </View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 10 }}>
                 {propPhotos.slice(0, 8).map((p) => (
-                  <Pressable key={p.id} onPress={() => router.push("/vault/photos")}>
-                    <Image
-                      source={{ uri: p.uri }}
-                      style={{ width: 90, height: 90, borderRadius: 12 }}
-                    />
-                  </Pressable>
+                  <PhotoCard key={p.id} photo={p} size={90} />
                 ))}
                 <Pressable
-                  onPress={() => router.push("/vault/photos")}
+                  onPress={() => router.push(`/properties/${propertyId}?section=photos`)}
                   style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: colors.bgSection, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }}
                 >
                   <Ionicons name="add" size={24} color={colors.textMuted} />

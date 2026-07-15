@@ -1,8 +1,18 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import type { Property, MaintenanceItem, Repair, Appliance, Document, Contractor } from "@/data/demoData";
 import type { PropertyScore } from "@/context/HomeWiseContext";
+import { parseCostNumber } from "@/lib/dbSanitize";
+
+/** Escape user-entered text before interpolating into the report HTML. */
+function esc(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 function scoreColor(v: number) {
   if (v >= 90) return "#16A34A";
@@ -37,9 +47,7 @@ export async function generateHomeHistoryPDF(params: {
 }): Promise<{ uri: string } | { error: string }> {
   const { property, score, maintenanceItems, repairs, appliances, documents, contractors, ownerName } = params;
 
-  const totalRepairCost = repairs.reduce(
-    (acc, r) => acc + parseFloat(r.cost.replace(/,/g, "") || "0"), 0
-  );
+  const totalRepairCost = repairs.reduce((acc, r) => acc + parseCostNumber(r.cost), 0);
 
   const reportDate = new Date().toLocaleDateString("en-US", {
     month: "long", day: "numeric", year: "numeric",
@@ -59,11 +67,11 @@ export async function generateHomeHistoryPDF(params: {
     ? "<tr><td colspan='4' style='text-align:center;color:#9AA7B8;padding:16px;'>No maintenance items recorded</td></tr>"
     : maintenanceItems.map((m) => `
         <tr>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${m.title}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${m.category}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${m.nextDue}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${esc(m.title)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(m.category)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(m.nextDue)}</td>
           <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">
-            <span style="color:${statusColor(m.status)};font-weight:700;font-size:12px;">${m.status}</span>
+            <span style="color:${statusColor(m.status)};font-weight:700;font-size:12px;">${esc(m.status)}</span>
           </td>
         </tr>`).join("");
 
@@ -71,21 +79,21 @@ export async function generateHomeHistoryPDF(params: {
     ? "<tr><td colspan='4' style='text-align:center;color:#9AA7B8;padding:16px;'>No repairs recorded</td></tr>"
     : repairs.map((r) => `
         <tr>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${r.title}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${r.date}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#1A3C8F;font-weight:700;">$${r.cost}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${r.contractor}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${esc(r.title)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(r.date)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#1A3C8F;font-weight:700;">$${esc(r.cost)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(r.contractor)}</td>
         </tr>`).join("");
 
   const applianceRows = appliances.length === 0
     ? "<tr><td colspan='4' style='text-align:center;color:#9AA7B8;padding:16px;'>No appliances recorded</td></tr>"
     : appliances.map((a) => `
         <tr>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${a.name}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${a.brand} ${a.model}</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${a.installDate}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">${esc(a.name)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(a.brand)} ${esc(a.model)}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;color:#4A5568;">${esc(a.installDate)}</td>
           <td style="padding:10px 14px;border-bottom:1px solid #EEF2FF;">
-            <span style="color:${scoreColor(a.condition === "Excellent" ? 95 : a.condition === "Good" ? 85 : a.condition === "Fair" ? 70 : 40)};font-weight:700;font-size:12px;">${a.condition}</span>
+            <span style="color:${scoreColor(a.condition === "Excellent" ? 95 : a.condition === "Good" ? 85 : a.condition === "Fair" ? 70 : 40)};font-weight:700;font-size:12px;">${esc(a.condition)}</span>
           </td>
         </tr>`).join("");
 
@@ -145,35 +153,35 @@ export async function generateHomeHistoryPDF(params: {
       <div class="report-date">
         <div style="color:rgba(255,255,255,0.5);font-size:11px;text-transform:uppercase;letter-spacing:1px;">Report Date</div>
         <div style="font-weight:700;margin-top:2px;">${reportDate}</div>
-        <div style="margin-top:4px;color:rgba(255,255,255,0.5);font-size:11px;">Prepared for ${ownerName}</div>
+        <div style="margin-top:4px;color:rgba(255,255,255,0.5);font-size:11px;">Prepared for ${esc(ownerName)}</div>
       </div>
     </div>
-    <div class="property-name">${property.address}</div>
-    <div class="property-sub">${property.city}, ${property.state} ${property.zip}</div>
+    <div class="property-name">${esc(property.address)}</div>
+    <div class="property-sub">${esc(property.city)}, ${esc(property.state)} ${esc(property.zip)}</div>
     <div class="prop-details">
       <div class="prop-detail-item">
         <div class="prop-detail-label">Year Built</div>
-        <div class="prop-detail-value">${property.yearBuilt}</div>
+        <div class="prop-detail-value">${esc(property.yearBuilt)}</div>
       </div>
       <div class="prop-detail-item">
         <div class="prop-detail-label">Sq Ft</div>
-        <div class="prop-detail-value">${property.squareFeet}</div>
+        <div class="prop-detail-value">${esc(property.squareFeet)}</div>
       </div>
       <div class="prop-detail-item">
         <div class="prop-detail-label">Bedrooms</div>
-        <div class="prop-detail-value">${property.bedrooms}</div>
+        <div class="prop-detail-value">${esc(property.bedrooms)}</div>
       </div>
       <div class="prop-detail-item">
         <div class="prop-detail-label">Bathrooms</div>
-        <div class="prop-detail-value">${property.bathrooms}</div>
+        <div class="prop-detail-value">${esc(property.bathrooms)}</div>
       </div>
       <div class="prop-detail-item">
         <div class="prop-detail-label">Est. Value</div>
-        <div class="prop-detail-value">$${property.estimatedValue}</div>
+        <div class="prop-detail-value">$${esc(property.estimatedValue)}</div>
       </div>
       <div class="prop-detail-item">
         <div class="prop-detail-label">Purchased</div>
-        <div class="prop-detail-value">${property.purchaseDate}</div>
+        <div class="prop-detail-value">${esc(property.purchaseDate)}</div>
       </div>
     </div>
   </div>
@@ -274,10 +282,10 @@ export async function generateHomeHistoryPDF(params: {
       : documents.map((d) => `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #EEF2FF;">
             <div>
-              <div style="font-weight:700;font-size:14px;">${d.title}</div>
-              <div style="color:#8A9AB8;font-size:12px;">${d.uploadDate}${d.expiresDate ? ` · Expires: ${d.expiresDate}` : ""}</div>
+              <div style="font-weight:700;font-size:14px;">${esc(d.title)}</div>
+              <div style="color:#8A9AB8;font-size:12px;">${esc(d.uploadDate)}${d.expiresDate ? ` · Expires: ${esc(d.expiresDate)}` : ""}</div>
             </div>
-            <span style="background:#EEF4FF;color:#1A3C8F;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;">${d.category}</span>
+            <span style="background:#EEF4FF;color:#1A3C8F;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;">${esc(d.category)}</span>
           </div>`).join("")}
   </div>
 
@@ -288,10 +296,10 @@ export async function generateHomeHistoryPDF(params: {
     ${contractors.map((c) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #EEF2FF;">
         <div>
-          <div style="font-weight:700;font-size:14px;">${c.name}</div>
-          <div style="color:#8A9AB8;font-size:12px;">${c.trade} · ${c.phone}</div>
+          <div style="font-weight:700;font-size:14px;">${esc(c.name)}</div>
+          <div style="color:#8A9AB8;font-size:12px;">${esc(c.trade)} · ${esc(c.phone)}</div>
         </div>
-        <div style="color:#F59E0B;font-size:14px;">${"★".repeat(c.rating)}</div>
+        <div style="color:#F59E0B;font-size:14px;">${"★".repeat(Math.max(0, Math.min(5, Math.round(c.rating ?? 5))))}</div>
       </div>`).join("")}
   </div>` : ""}
 
@@ -316,7 +324,9 @@ export async function generateHomeHistoryPDF(params: {
 
 export async function sharePDF(uri: string, filename: string) {
   const available = await Sharing.isAvailableAsync();
-  if (!available) return;
+  if (!available) {
+    throw new Error("Sharing is not available on this device.");
+  }
 
   // Copy to a nicely-named file
   const dest = `${FileSystem.cacheDirectory}${filename}.pdf`;

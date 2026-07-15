@@ -7,7 +7,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { ScoreBar } from "@/components/ScoreRing";
@@ -15,12 +15,29 @@ import { LoadingView } from "@/components/LoadingView";
 import { ErrorCard } from "@/components/ErrorCard";
 import { EmptyState } from "@/components/EmptyState";
 import { ReportPreviewCard } from "@/components/ReportPreviewCard";
+import { ScoreInsightPanel } from "@/components/ScoreInsightPanel";
 import { colors, styles } from "@/constants/theme";
+import { buildAllScoreCategoryInsights, computeOverallFromCategories, type ScoreCategoryKey } from "@/lib/scoreCategories";
+import { recordScoreSnapshot, checkScoreCelebration, getScoreHistory, type ScoreCelebration, type ScoreSnapshot } from "@/lib/scoreHistory";
+import { flattenPrioritizedRecommendations, computeCompletionPercent } from "@/lib/scoreMeta";
+import { recordScoreActivity, getEngagementStats, type EngagementStats } from "@/lib/scoreEngagement";
+import { buildMonthlyReportData } from "@/lib/scoreMonthlyReport";
+import { getLastCheckupYear, shouldPromptAnnualCheckup } from "@/lib/scoreAnnualCheckup";
+import { ScoreCelebrationBanner } from "@/components/ScoreCelebrationBanner";
+import { ScoreHistoryPanel } from "@/components/ScoreHistoryPanel";
+import { ScoreCompletionHeader } from "@/components/ScoreCompletionHeader";
+import { RecommendationCard } from "@/components/RecommendationCard";
+import { ScoreStreaksPanel } from "@/components/ScoreStreaksPanel";
+import { ScoreMilestonesPanel } from "@/components/ScoreMilestonesPanel";
+import { ScoreSeasonalPanel } from "@/components/ScoreSeasonalPanel";
+import { MonthlyHealthReportPanel } from "@/components/MonthlyHealthReportPanel";
 import { useTabScrollContentStyle } from "@/constants/layout";
+import { TabScreenHeader } from "@/components/TabScreenHeader";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
 import { isOwnerAdminEmail } from "@/lib/admin";
+import { parseCostNumber } from "@/lib/dbSanitize";
 import {
   assembleReportData,
   buildHomeHistoryReportHtml,
@@ -75,12 +92,14 @@ function ScoreGauge({ score }: { score: number }) {
 export default function ReportsScreen() {
   const {
     selectedProperty,
+    properties,
     maintenanceItems,
     repairs,
     appliances,
     documents,
     photos,
     contractors,
+    paintColors,
     getPropertyScore,
     isLoading,
     loadError,
@@ -99,6 +118,11 @@ export default function ReportsScreen() {
   const [pdfUri, setPdfUri] = useState<string | null>(null);
   const [reportHtml, setReportHtml] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<SavedReport | null>(null);
+  const [expandedInsight, setExpandedInsight] = useState<ScoreCategoryKey | null>(null);
+  const [celebration, setCelebration] = useState<ScoreCelebration | null>(null);
+  const [engagement, setEngagement] = useState<EngagementStats | null>(null);
+  const [monthlyHistory, setMonthlyHistory] = useState<ScoreSnapshot[]>([]);
+  const [showCheckupPrompt, setShowCheckupPrompt] = useState(false);
 
   const hasReportAccess =
     isOwner ||
@@ -118,6 +142,81 @@ export default function ReportsScreen() {
   useEffect(() => {
     loadSaved();
   }, [loadSaved]);
+
+  const pid = selectedProperty?.id ?? "";
+
+  const scoreInsights = useMemo(() => {
+    if (!selectedProperty) return [];
+    const p = selectedProperty;
+    return buildAllScoreCategoryInsights({
+      property: p,
+      maintenance: maintenanceItems.filter((m) => m.propertyId === p.id),
+      repairs: repairs.filter((r) => r.propertyId === p.id),
+      appliances: appliances.filter((a) => a.propertyId === p.id),
+      documents: documents.filter((d) => d.propertyId === p.id),
+      contractors: contractors.filter((c) => !c.propertyId || c.propertyId === p.id),
+      paintColors: paintColors.filter((x) => x.propertyId === p.id),
+      photos: photos.filter((x) => x.propertyId === p.id),
+    });
+  }, [selectedProperty, maintenanceItems, repairs, appliances, documents, contractors, paintColors, photos]);
+
+  const displayScore = useMemo(() => {
+    if (!selectedProperty || scoreInsights.length === 0) return 0;
+    const base = getPropertyScore(selectedProperty.id).overall;
+    const enhanced = computeOverallFromCategories(scoreInsights);
+    return Math.round((base + enhanced) / 2);
+  }, [selectedProperty, scoreInsights, getPropertyScore]);
+
+  const completionPercent = useMemo(() => computeCompletionPercent(displayScore), [displayScore]);
+
+  const prioritizedRecs = useMemo(
+    () => flattenPrioritizedRecommendations(scoreInsights),
+    [scoreInsights]
+  );
+
+  const monthlyReportData = useMemo(() => {
+    if (!selectedProperty) return null;
+    const pid = selectedProperty.id;
+    return buildMonthlyReportData({
+      propertyAddress: selectedProperty.address,
+      overallScore: displayScore,
+      completionPercent,
+      maintenance: maintenanceItems.filter((m) => m.propertyId === pid),
+      documents: documents.filter((d) => d.propertyId === pid),
+      recommendations: prioritizedRecs,
+      history: monthlyHistory,
+    });
+  }, [
+    selectedProperty,
+    displayScore,
+    completionPercent,
+    maintenanceItems,
+    documents,
+    prioritizedRecs,
+    monthlyHistory,
+  ]);
+
+  useEffect(() => {
+    if (!pid || displayScore === 0) return;
+    const categories = Object.fromEntries(scoreInsights.map((i) => [i.key, i.score]));
+    recordScoreSnapshot(pid, displayScore, categories).catch(() => {});
+    checkScoreCelebration(pid, displayScore).then(setCelebration).catch(() => {});
+    recordScoreActivity(pid).catch(() => {});
+    getEngagementStats({
+      propertyId: pid,
+      properties,
+      maintenance: maintenanceItems.filter((m) => m.propertyId === pid),
+      documents: documents.filter((d) => d.propertyId === pid),
+      appliances: appliances.filter((a) => a.propertyId === pid),
+      overallScore: displayScore,
+    })
+      .then(setEngagement)
+      .catch(() => {});
+    getScoreHistory(pid, "30d").then(setMonthlyHistory).catch(() => {});
+    getLastCheckupYear(pid)
+      .then((y) => setShowCheckupPrompt(shouldPromptAnnualCheckup(y)))
+      .catch(() => {});
+  }, [pid, displayScore, scoreInsights, properties, maintenanceItems, documents, appliances]);
 
   if (isLoading) {
     return (
@@ -140,23 +239,28 @@ export default function ReportsScreen() {
   }
 
   const property = selectedProperty;
-  const pid = property.id;
   const score = getPropertyScore(pid);
   const propMaint = maintenanceItems.filter((m) => m.propertyId === pid);
   const propRepairs = repairs.filter((r) => r.propertyId === pid);
   const propApps = appliances.filter((a) => a.propertyId === pid);
   const propDocs = documents.filter((d) => d.propertyId === pid);
   const propPhotos = photos.filter((p) => p.propertyId === pid);
+  const propPaint = paintColors.filter((p) => p.propertyId === pid);
   const propReceipts = propDocs.filter((d) => d.category === "receipt");
   const propWarranties = propDocs.filter((d) => d.category === "warranty");
   const generalDocs = propDocs.filter(
     (d) => d.category !== "receipt" && d.category !== "warranty"
   );
 
-  const totalRepairCost = propRepairs.reduce(
-    (acc, r) => acc + parseFloat(r.cost.replace(/,/g, "") || "0"),
-    0
-  );
+  const totalRepairCost = propRepairs.reduce((acc, r) => acc + parseCostNumber(r.cost), 0);
+
+  function openCategoryDetail(key: ScoreCategoryKey) {
+    router.push({ pathname: "/score/[category]", params: { category: key } });
+  }
+
+  function toggleInsight(key: ScoreCategoryKey) {
+    setExpandedInsight((prev) => (prev === key ? null : key));
+  }
 
   async function loadReportData(): Promise<HomeHistoryReportData | null> {
     if (!user?.id) return null;
@@ -301,18 +405,11 @@ export default function ReportsScreen() {
 
   return (
     <Screen noPad tabScreen>
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 12,
-          backgroundColor: colors.bgCard,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        }}
-      >
-        <Text style={styles.screenTitle}>Reports</Text>
-        <Text style={styles.screenSubtitle}>{property.address}</Text>
+      <TabScreenHeader>
+        <Text style={styles.tabHeaderTitle}>Reports</Text>
+        <Text style={styles.tabHeaderSubtitle} numberOfLines={2}>
+          {property.address}
+        </Text>
         <View style={[styles.tabBar, { marginTop: 12, marginBottom: 0 }]}>
           <Pressable
             style={tab === "score" ? styles.tabItemActive : styles.tabItem}
@@ -331,7 +428,7 @@ export default function ReportsScreen() {
             </Text>
           </Pressable>
         </View>
-      </View>
+      </TabScreenHeader>
 
       <ScrollView contentContainerStyle={tabScrollStyle}>
         {loadError ? <ErrorCard message={loadError} onRetry={refreshData} /> : null}
@@ -359,8 +456,26 @@ export default function ReportsScreen() {
 
         {tab === "score" && (
           <>
+            {celebration ? (
+              <ScoreCelebrationBanner
+                propertyId={pid}
+                celebration={celebration}
+                onDismiss={() => setCelebration(null)}
+              />
+            ) : null}
+
             <Card elevated>
-              <ScoreGauge score={score.overall} />
+              <ScoreCompletionHeader score={displayScore} />
+              <ScoreGauge score={displayScore} />
+              <Pressable
+                onPress={() => router.push("/score/explain")}
+                style={{ alignItems: "center", marginBottom: 10 }}
+                accessibilityRole="link"
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                  How is this score calculated?
+                </Text>
+              </Pressable>
               <Text
                 style={{
                   color: colors.textMuted,
@@ -369,10 +484,10 @@ export default function ReportsScreen() {
                   marginBottom: 10,
                 }}
               >
-                Based on maintenance compliance, appliance condition, repair history, warranty
-                coverage, and inspections.
+                Based on 12 home health categories including roof, HVAC, plumbing,
+                safety, maintenance, warranties, and documents.
               </Text>
-              {score.overall >= 85 && (
+              {displayScore >= 85 && (
                 <View
                   style={{
                     backgroundColor: colors.successBg,
@@ -396,71 +511,91 @@ export default function ReportsScreen() {
               )}
             </Card>
 
+            {showCheckupPrompt ? (
+              <Card>
+                <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                  <Ionicons name="calendar-outline" size={28} color={colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "800", color: colors.textPrimary, fontSize: 15 }}>
+                      Annual Home Checkup
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
+                      Review appliances, warranties, insurance, and emergency info for the year.
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  style={[styles.primaryButton, { marginTop: 12 }]}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/score/checkup",
+                      params: { propertyId: pid },
+                    })
+                  }
+                >
+                  <Text style={styles.primaryButtonText}>Start Annual Checkup</Text>
+                </Pressable>
+              </Card>
+            ) : null}
+
+            {prioritizedRecs.length > 0 ? (
+              <Card>
+                <Text style={styles.sectionHeader}>Priority Recommendations</Text>
+                <Text style={[styles.muted, { marginBottom: 12 }]}>
+                  Sorted by impact — tap any action to fix it now.
+                </Text>
+                {prioritizedRecs.slice(0, 6).map((rec) => (
+                  <RecommendationCard key={`${rec.categoryKey}-${rec.label}`} recommendation={rec} />
+                ))}
+              </Card>
+            ) : null}
+
+            <Card>
+              <ScoreSeasonalPanel />
+            </Card>
+
+            {engagement ? (
+              <Card>
+                <ScoreStreaksPanel stats={engagement} />
+                <ScoreMilestonesPanel milestones={engagement.milestones} />
+              </Card>
+            ) : null}
+
+            {monthlyReportData ? (
+              <Card>
+                <MonthlyHealthReportPanel reportData={monthlyReportData} />
+              </Card>
+            ) : null}
+
             <Card>
               <Text style={styles.sectionHeader}>Score Breakdown</Text>
-              <ScoreBar score={score.maintenance} label="Maintenance Compliance" />
-              <ScoreBar score={score.appliances} label="Appliance Condition" />
-              <ScoreBar score={score.repairs} label="Repair History" />
-              <ScoreBar score={score.warranty} label="Warranty Coverage" />
-              <ScoreBar score={score.inspections} label="Inspection Records" />
+              <Text style={[styles.muted, { marginBottom: 12 }]}>
+                Tap any category for details and recommended actions.
+              </Text>
+              {scoreInsights.map((insight) => (
+                <ScoreBar
+                  key={insight.key}
+                  score={insight.score}
+                  label={insight.label}
+                  onPress={() => openCategoryDetail(insight.key)}
+                />
+              ))}
+            </Card>
+
+            <Card>
+              <ScoreHistoryPanel propertyId={pid} currentOverall={displayScore} />
             </Card>
 
             <Card>
               <Text style={styles.sectionHeader}>How to Improve Your Score</Text>
-              {propMaint.filter((m) => m.status === "Overdue").length > 0 && (
-                <View style={[styles.rowStart, { marginBottom: 14 }]}>
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor: colors.dangerBg,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="alert-circle" size={18} color={colors.danger} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.textPrimary, fontWeight: "700", fontSize: 14 }}>
-                      Complete overdue maintenance
-                    </Text>
-                    <Text style={styles.muted}>
-                      {propMaint.filter((m) => m.status === "Overdue").length} task(s) overdue.
-                    </Text>
-                  </View>
-                </View>
-              )}
-              {propApps.filter((a) => a.condition === "Poor" || a.condition === "Replace Soon")
-                .length > 0 && (
-                <View style={[styles.rowStart, { marginBottom: 14 }]}>
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor: colors.warningBg,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="warning" size={18} color={colors.warning} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.textPrimary, fontWeight: "700", fontSize: 14 }}>
-                      Replace failing appliances
-                    </Text>
-                    <Text style={styles.muted}>
-                      {
-                        propApps.filter(
-                          (a) => a.condition === "Poor" || a.condition === "Replace Soon"
-                        ).length
-                      }{" "}
-                      appliance(s) in poor condition.
-                    </Text>
-                  </View>
-                </View>
-              )}
+              {scoreInsights.map((insight) => (
+                <ScoreInsightPanel
+                  key={insight.key}
+                  insight={insight}
+                  expanded={expandedInsight === insight.key}
+                  onToggle={() => toggleInsight(insight.key)}
+                />
+              ))}
             </Card>
 
             <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>

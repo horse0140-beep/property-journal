@@ -23,9 +23,6 @@
         "NSPhotoLibraryAddUsageDescription": "HomeWise saves generated reports to your photo library.",
         "NSCameraUsageDescription": "HomeWise uses your camera to photograph appliances, receipts, and home repairs.",
         "UIBackgroundModes": [
-          "fetch",
-          "remote-notification",
-          "fetch",
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -40,13 +37,10 @@
         "backgroundColor": "#0F2460"
       },
       "permissions": [
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.CAMERA",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -56,10 +50,19 @@
     "plugins": [
       "expo-router",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#0F2460"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "HomeWise uses your photos to attach images to repairs and appliances.",
-          "cameraPermission": "HomeWise uses your camera to photograph appliances and receipts."
+          "cameraPermission": "HomeWise uses your camera to photograph appliances and receipts.",
+          "microphonePermission": false
         }
       ],
       [
@@ -69,7 +72,8 @@
           "color": "#1A3C8F",
           "defaultChannel": "maintenance"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "router": {},

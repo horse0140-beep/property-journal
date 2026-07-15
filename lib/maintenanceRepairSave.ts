@@ -1,5 +1,6 @@
 import { Alert } from "react-native";
 import { AuthRequiredError } from "@/lib/authUser";
+import { showRealSaveError } from "@/lib/realSaveError";
 
 type SupabaseLikeError = {
   message?: string;
@@ -104,9 +105,17 @@ function showDetailedSaveAlert(title: string, action: string, error: unknown): v
 }
 
 export function showMaintenanceSaveError(action: string, error: unknown): void {
-  showDetailedSaveAlert("Maintenance Save Failed", action, error);
+  if (__DEV__) {
+    showDetailedSaveAlert("Maintenance Save Failed", action, error);
+    return;
+  }
+  showRealSaveError("maintenance", action, error);
 }
 
 export function showRepairSaveError(action: string, error: unknown): void {
-  showDetailedSaveAlert("Repair Save Failed", action, error);
+  if (__DEV__) {
+    showDetailedSaveAlert("Repair Save Failed", action, error);
+    return;
+  }
+  showRealSaveError("repair", action, error);
 }

@@ -90,7 +90,7 @@ export default function MaintenanceForecastScreen() {
                 <Ionicons name="sparkles" size={52} color={colors.primary} />
                 <Text style={styles.emptyStateTitle}>No forecast yet</Text>
                 <Text style={styles.emptyStateText}>
-                  AI analyzes your maintenance schedule, appliance ages, and repair history to predict what's coming in the next 12 months.
+                  AI analyzes your maintenance schedule, appliance ages, and repair history to predict what&apos;s coming in the next 12 months.
                 </Text>
                 <Pressable style={styles.primaryButton} onPress={handleGenerate} disabled={generating}>
                   {generating ? (

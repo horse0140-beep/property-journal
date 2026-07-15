@@ -1,11 +1,14 @@
+import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
+import { assertNoError, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
 
 function generateToken(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = Crypto.getRandomValues(new Uint8Array(16));
   let token = "HW-";
-  for (let i = 0; i < 12; i++) {
-    token += chars[Math.floor(Math.random() * chars.length)];
+  for (const byte of bytes) {
+    token += chars[byte % chars.length];
   }
   return token;
 }
@@ -26,8 +29,26 @@ export async function fetchPropertyShares(userId: string): Promise<PropertyShare
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    logTechnicalError("fetchPropertyShares", error);
+    assertNoError("sharing", error, "sharing");
+  }
   return (data ?? []) as PropertyShare[];
+}
+
+export async function fetchPropertyShareByToken(token: string): Promise<PropertyShare | null> {
+  // Security definer RPC (migration 026): the token-less public SELECT policy
+  // was removed, so viewers can only fetch the single share for a known token.
+  // The RPC also handles active/expiry checks and increments views_count.
+  const { data, error } = await supabase.rpc("get_share_by_token", { p_token: token });
+
+  if (error) {
+    logTechnicalError("fetchPropertyShareByToken", error);
+    return null;
+  }
+
+  if (!data) return null;
+  return data as PropertyShare;
 }
 
 export async function createPropertyShare(
@@ -50,7 +71,7 @@ export async function createPropertyShare(
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  assertNoError("sharing_create", error, "sharing_create");
   return data as PropertyShare;
 }
 
@@ -65,13 +86,17 @@ export async function updatePropertyShare(
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  assertNoError("sharing", error, "sharing");
   return data as PropertyShare;
+}
+
+export async function revokePropertyShare(id: string): Promise<PropertyShare> {
+  return updatePropertyShare(id, { is_active: false });
 }
 
 export async function deletePropertyShare(id: string) {
   const { error } = await supabase.from("property_shares").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  assertNoError("sharing_revoke", error, "sharing_revoke");
 }
 
 export function buildShareUrl(token: string): string {

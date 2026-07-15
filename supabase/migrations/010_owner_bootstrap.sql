@@ -17,7 +17,7 @@ begin
 
   select email into v_email from auth.users where id = v_user_id;
 
-  if lower(trim(v_email)) <> 'hdmccoy180@gmail.com' then
+  if lower(trim(v_email)) <> 'horse0140@gmail.com' then
     raise exception 'Not authorized';
   end if;
 

@@ -41,6 +41,9 @@ export const REPAIR_OPTIONAL_COLUMNS = [
 ] as const;
 
 export const APPLIANCE_OPTIONAL_COLUMNS = [
+  // appliance_name must precede name: substring matching would otherwise strip
+  // the valid "name" column when the error is about "appliance_name".
+  "appliance_name",
   "name",
   "photo_url",
   "manual_url",

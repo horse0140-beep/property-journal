@@ -37,7 +37,7 @@ export default function TermsScreen() {
         <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 24 }}>Last updated: June 1, 2026</Text>
 
         <Section title="Agreement to Terms">
-          <Para>By accessing or using HomeWise ("the App"), you agree to be bound by these Terms of Service. If you do not agree, do not use the App.</Para>
+          <Para>By accessing or using HomeWise (&quot;the App&quot;), you agree to be bound by these Terms of Service. If you do not agree, do not use the App.</Para>
         </Section>
 
         <Section title="Description of Service">
@@ -61,11 +61,11 @@ export default function TermsScreen() {
         </Section>
 
         <Section title="User Content">
-          <Para>You retain ownership of all content you upload to HomeWise. By using the App, you grant HomeWise a limited, non-exclusive license to store, process, and display your content solely to provide the App's services.</Para>
+          <Para>You retain ownership of all content you upload to HomeWise. By using the App, you grant HomeWise a limited, non-exclusive license to store, process, and display your content solely to provide the App&apos;s services.</Para>
         </Section>
 
         <Section title="AI Assistant">
-          <Para>The AI Home Assistant is powered by Anthropic's Claude API. Responses are for informational purposes only and do not constitute professional advice. Always consult qualified professionals for significant home decisions.</Para>
+          <Para>The AI Home Assistant is powered by Anthropic&apos;s Claude API. Responses are for informational purposes only and do not constitute professional advice. Always consult qualified professionals for significant home decisions.</Para>
         </Section>
 
         <Section title="Home History Reports">
@@ -80,11 +80,11 @@ export default function TermsScreen() {
         </Section>
 
         <Section title="Disclaimers">
-          <Para>THE APP IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND. HOMEWISE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.</Para>
+          <Para>THE APP IS PROVIDED &quot;AS IS&quot; WITHOUT WARRANTIES OF ANY KIND. HOMEWISE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.</Para>
         </Section>
 
         <Section title="Limitation of Liability">
-          <Para>HOMEWISE'S TOTAL LIABILITY FOR ANY CLAIMS SHALL NOT EXCEED THE AMOUNT YOU PAID IN THE 12 MONTHS PRECEDING THE CLAIM. HOMEWISE IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES.</Para>
+          <Para>HOMEWISE&apos;S TOTAL LIABILITY FOR ANY CLAIMS SHALL NOT EXCEED THE AMOUNT YOU PAID IN THE 12 MONTHS PRECEDING THE CLAIM. HOMEWISE IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES.</Para>
         </Section>
 
         <Section title="Termination">

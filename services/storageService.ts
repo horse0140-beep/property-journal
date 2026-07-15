@@ -1,6 +1,8 @@
-import { Alert, Platform } from "react-native";
-import * as FileSystem from "expo-file-system";
+import { Platform } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "@/lib/supabase";
+import { showRealSaveError } from "@/lib/realSaveError";
+import { auditPipelineStep, auditUpload } from "@/lib/photoUploadAudit";
 import {
   pickDocument,
   pickImageFromLibrary,
@@ -9,16 +11,9 @@ import {
   type PickedImage,
 } from "@/lib/fileUtils";
 import type { Document } from "@/data/demoData";
+import { getPhotoBucket, type StorageBucket } from "@/services/storageBuckets";
 
-export type StorageBucket =
-  | "property-photos"
-  | "repair-photos"
-  | "receipts"
-  | "warranties"
-  | "documents"
-  | "reports"
-  | "leases"
-  | "inspection-files";
+export type { StorageBucket } from "@/services/storageBuckets";
 
 export type UploadPhase = "picking" | "reading" | "uploading" | "complete";
 
@@ -34,6 +29,10 @@ export type UploadedFile = {
   path: string;
   url: string;
   isPublic: boolean;
+  mimeType?: string;
+  urlMethod?: "getPublicUrl" | "createSignedUrl";
+  /** Raw Supabase Storage upload response (when available). */
+  uploadResponse?: { id?: string; path?: string; fullPath?: string } | null;
 };
 
 export type PickedUpload = {
@@ -44,9 +43,10 @@ export type PickedUpload = {
   fileType: "pdf" | "image" | "other";
 };
 
-/** Buckets that use signed URLs (private). Others use public URLs. */
+/** Buckets that use signed URLs (private). property-photos is public (migration 025). */
 const PRIVATE_BUCKETS = new Set<StorageBucket>([
   "repair-photos",
+  "before-after-photos",
   "receipts",
   "warranties",
   "documents",
@@ -111,20 +111,36 @@ export function bucketForDocumentCategory(category: Document["category"]): Stora
 }
 
 export function bucketForRepairAsset(kind: "photo" | "receipt"): StorageBucket {
-  return kind === "receipt" ? "receipts" : "repair-photos";
+  return kind === "receipt" ? "receipts" : getPhotoBucket("repair");
 }
 
 export function bucketForPropertyPhoto(): StorageBucket {
-  return "property-photos";
+  return getPhotoBucket("property");
 }
 
 export function bucketForReport(): StorageBucket {
   return "reports";
 }
 
-export function showUploadError(error: unknown, title = "Upload Failed"): void {
-  const message = error instanceof Error ? error.message : "Could not upload file.";
-  Alert.alert(title, message);
+export function showUploadError(error: unknown, title = "Upload Error"): void {
+  showRealSaveError("upload", title, error);
+}
+
+function storageConfigMessage(error: { message?: string }): string | null {
+  const msg = (error.message ?? "").toLowerCase();
+  if (msg.includes("bucket not found") || (msg.includes("not found") && msg.includes("bucket"))) {
+    return "Storage is not configured yet. Please create the HomeWise uploads bucket in Supabase.";
+  }
+  if (msg.includes("row-level security") || msg.includes("policy")) {
+    return "Storage upload was blocked. Check Supabase storage policies for this bucket.";
+  }
+  return null;
+}
+
+function wrapStorageError(error: { message: string }): Error {
+  const friendly = storageConfigMessage(error);
+  if (friendly) return new Error(friendly);
+  return new Error(error.message);
 }
 
 function reportProgress(onProgress: UploadProgressCallback | undefined, phase: UploadPhase, percent: number) {
@@ -154,21 +170,138 @@ async function readLocalFile(uri: string, onProgress?: UploadProgressCallback): 
   return base64ToArrayBuffer(base64);
 }
 
-async function resolveAccessibleUrl(bucket: StorageBucket, path: string): Promise<{ url: string; isPublic: boolean }> {
-  if (PRIVATE_BUCKETS.has(bucket)) {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
-
-    if (error || !data?.signedUrl) {
-      throw new Error(error?.message ?? "Failed to create signed URL.");
-    }
-
-    return { url: data.signedUrl, isPublic: false };
+async function resolveAccessibleUrl(
+  bucket: StorageBucket,
+  path: string
+): Promise<{ url: string; isPublic: boolean; urlMethod: "getPublicUrl" | "createSignedUrl" }> {
+  const objectPath = path.trim();
+  if (!objectPath) {
+    throw wrapStorageError({ message: "Storage path is empty." });
   }
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return { url: data.publicUrl, isPublic: true };
+  const createSigned = async (): Promise<{
+    url: string;
+    isPublic: boolean;
+    urlMethod: "createSignedUrl";
+  }> => {
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
+
+    if (error || !data?.signedUrl?.trim()) {
+      throw wrapStorageError(error ?? { message: "Failed to create signed URL." });
+    }
+
+    return { url: data.signedUrl.trim(), isPublic: false, urlMethod: "createSignedUrl" };
+  };
+
+  if (PRIVATE_BUCKETS.has(bucket)) {
+    return createSigned();
+  }
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+  const publicUrl = data.publicUrl?.trim() ?? "";
+
+  if (publicUrl) {
+    const check = await verifyImageUrlHttp200(publicUrl);
+    auditUpload("getPublicUrl probe", { bucket, publicUrl, ...check });
+    if (check.ok) {
+      return { url: publicUrl, isPublic: true, urlMethod: "getPublicUrl" };
+    }
+    console.warn("[UPLOAD] publicUrl not HTTP 200 — falling back to createSignedUrl:", publicUrl);
+  }
+
+  return createSigned();
+}
+
+/** HEAD probe — requires HTTP 200 (falls back to ranged GET when HEAD is unsupported). */
+export async function verifyImageUrlHttp200(
+  url: string
+): Promise<{ ok: boolean; status?: number; method?: string; contentType?: string; error?: string }> {
+  const target = url.trim();
+  if (!target.startsWith("http://") && !target.startsWith("https://")) {
+    return { ok: false, error: "not http(s)" };
+  }
+
+  try {
+    const head = await fetch(target, { method: "HEAD" });
+    const headType = head.headers.get("content-type") ?? undefined;
+    if (head.status === 200) {
+      return { ok: true, status: 200, method: "HEAD", contentType: headType };
+    }
+
+    const get = await fetch(target, { method: "GET", headers: { Range: "bytes=0-1023" } });
+    const getType = get.headers.get("content-type") ?? undefined;
+    const ok = get.status === 200 || get.status === 206;
+    return {
+      ok,
+      status: get.status,
+      method: "GET",
+      contentType: getType,
+      error: ok ? undefined : `HTTP ${get.status}`,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** @deprecated Prefer verifyImageUrlHttp200 */
+export async function verifyImageUrlFetchable(
+  url: string
+): Promise<{ ok: boolean; status?: number; contentType?: string; error?: string }> {
+  const result = await verifyImageUrlHttp200(url);
+  return {
+    ok: result.ok,
+    status: result.status,
+    contentType: result.contentType,
+    error: result.error,
+  };
+}
+
+export async function verifyLocalFileExists(
+  localUri: string
+): Promise<{ exists: boolean; size?: number; error?: string }> {
+  if (Platform.OS === "web") {
+    try {
+      const res = await fetch(localUri, { method: "HEAD" });
+      return { exists: res.ok, error: res.ok ? undefined : `HTTP ${res.status}` };
+    } catch (e) {
+      return { exists: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  try {
+    const info = await FileSystem.getInfoAsync(localUri);
+    if (!info.exists) {
+      return { exists: false, error: "file not found on device" };
+    }
+    return { exists: true, size: "size" in info ? info.size : undefined };
+  } catch (e) {
+    return { exists: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function deleteStorageObject(bucket: StorageBucket, path: string): Promise<void> {
+  const objectPath = path.trim();
+  if (!objectPath) return;
+
+  const { error } = await supabase.storage.from(bucket).remove([objectPath]);
+  if (error) {
+    console.warn("[UPLOAD] storage cleanup failed:", { bucket, path: objectPath, error: error.message });
+  } else {
+    console.log("[UPLOAD] storage object deleted after failed verification:", { bucket, path: objectPath });
+  }
+}
+
+/** Confirm bucket exists and is reachable for the authenticated user. */
+export async function verifyStorageBucketExists(
+  bucket: StorageBucket
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.storage.from(bucket).list("", { limit: 1 });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 export async function uploadLocalFile(
@@ -181,6 +314,12 @@ export async function uploadLocalFile(
   if (!userId) throw new Error("You must be signed in to upload files.");
   if (!localUri) throw new Error("No file selected.");
 
+  const fileCheck = await verifyLocalFileExists(localUri);
+  auditPipelineStep(3, { localUri, ...fileCheck });
+  if (!fileCheck.exists) {
+    throw new Error(fileCheck.error ?? "File not found on device.");
+  }
+
   reportProgress(onProgress, "uploading", 45);
 
   const ext = extensionFromUri(localUri);
@@ -188,24 +327,63 @@ export async function uploadLocalFile(
   const path = `${userId}/${safeName}`;
   const contentType = guessContentType(localUri);
 
+  const uploadRequest = { bucket, path, contentType, userId, localUri };
+  auditPipelineStep(4, uploadRequest);
+  auditUpload("uploadRequest", uploadRequest);
+
   const fileBody = await readLocalFile(localUri, onProgress);
 
   reportProgress(onProgress, "uploading", 70);
 
-  const { error } = await supabase.storage.from(bucket).upload(path, fileBody, {
+  const { data: uploadData, error } = await supabase.storage.from(bucket).upload(path, fileBody, {
     contentType,
     upsert: true,
   });
 
-  if (error) throw new Error(error.message);
+  auditPipelineStep(5, error ? { error: error.message } : uploadData);
+  auditUpload("uploadResponse", error ?? uploadData);
+
+  if (error) throw wrapStorageError(error);
 
   reportProgress(onProgress, "uploading", 90);
 
-  const { url, isPublic } = await resolveAccessibleUrl(bucket, path);
+  auditPipelineStep(6, path);
+  auditUpload("storagePath", path);
+
+  const { url, isPublic, urlMethod } = await resolveAccessibleUrl(bucket, path);
+  auditPipelineStep(7, { urlMethod, url, isPublic, bucket });
+  auditUpload("urlResolution", { urlMethod, url, isPublic, bucket });
 
   reportProgress(onProgress, "complete", 100);
 
-  return { bucket, path, url, isPublic };
+  return {
+    bucket,
+    path,
+    url,
+    isPublic,
+    mimeType: contentType,
+    urlMethod,
+    uploadResponse: uploadData,
+  };
+}
+
+/** Confirm an object exists in Supabase Storage after upload. */
+export async function verifyStorageObjectExists(
+  bucket: StorageBucket,
+  path: string
+): Promise<{ exists: boolean; error?: string }> {
+  const objectPath = path.trim();
+  if (!objectPath) {
+    return { exists: false, error: "empty path" };
+  }
+
+  const { data, error } = await supabase.storage.from(bucket).download(objectPath);
+
+  if (error) {
+    return { exists: false, error: error.message };
+  }
+
+  return { exists: data != null };
 }
 
 /** Upload local file if needed; returns existing remote URL unchanged. */
@@ -284,18 +462,34 @@ export async function pickImageForUpload(
   onProgress?: UploadProgressCallback
 ): Promise<PickedUpload | null> {
   reportProgress(onProgress, "picking", 5);
-  const results = await pickImageFromLibrary({ allowsMultiple: false });
+  const results = await pickImageFromLibrary({ allowsMultiple: false, allowsEditing: false });
   if (!results?.length) return null;
-  return pickedImageToUpload(results[0]);
+  const picked = pickedImageToUpload(results[0]);
+  auditPipelineStep(1, {
+    source: "library",
+    localUri: picked.localUri,
+    name: picked.name,
+    mimeType: picked.mimeType,
+    formattedSize: picked.formattedSize,
+  });
+  return picked;
 }
 
 export async function pickCameraForUpload(
   onProgress?: UploadProgressCallback
 ): Promise<PickedUpload | null> {
   reportProgress(onProgress, "picking", 5);
-  const result = await takePhoto();
+  const result = await takePhoto({ allowsEditing: false });
   if (!result) return null;
-  return pickedImageToUpload(result);
+  const picked = pickedImageToUpload(result);
+  auditPipelineStep(1, {
+    source: "camera",
+    localUri: picked.localUri,
+    name: picked.name,
+    mimeType: picked.mimeType,
+    formattedSize: picked.formattedSize,
+  });
+  return picked;
 }
 
 export async function pickAndUploadDocument(

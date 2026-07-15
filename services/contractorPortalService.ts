@@ -1,8 +1,17 @@
+import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import type { ContractorPortalAccess } from "@/types/premium";
 
 function generateAccessCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  // 12 crypto-random alphanumeric chars — a 6-digit numeric code is
+  // brute-forceable in ~900k guesses.
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = Crypto.getRandomValues(new Uint8Array(12));
+  let code = "";
+  for (const byte of bytes) {
+    code += chars[byte % chars.length];
+  }
+  return code;
 }
 
 export type ContractorPortalInput = {

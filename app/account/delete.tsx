@@ -12,6 +12,7 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/context/AuthContext";
+import { isFounderAccount, PROTECTED_ACCOUNT_MESSAGE } from "@/lib/admin";
 import { cancelAllNotifications } from "@/lib/notifications";
 import { unregisterPushTokens } from "@/services/pushService";
 import { colors, styles } from "@/constants/theme";
@@ -58,7 +59,7 @@ export default function DeleteAccountScreen() {
 
     try {
       await cancelAllNotifications();
-      await unregisterPushTokens(user.id).catch(() => {});
+      await unregisterPushTokens().catch(() => {});
 
       const result = await deleteAccount();
 
@@ -82,6 +83,48 @@ export default function DeleteAccountScreen() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (isFounderAccount(user.email)) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            backgroundColor: colors.bgCard,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: colors.bgSection,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.primary} />
+          </Pressable>
+          <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "800" }}>Delete Account</Text>
+        </View>
+        <View style={{ flex: 1, padding: 24, justifyContent: "center" }}>
+          <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" }}>
+            Protected Account
+          </Text>
+          <Text style={{ color: colors.textMuted, textAlign: "center", marginTop: 12, lineHeight: 22 }}>
+            {PROTECTED_ACCOUNT_MESSAGE}
+          </Text>
+        </View>
       </SafeAreaView>
     );
   }

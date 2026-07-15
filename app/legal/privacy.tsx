@@ -45,7 +45,7 @@ export default function PrivacyPolicyScreen() {
         <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 24 }}>Last updated: June 1, 2026</Text>
 
         <Section title="Introduction">
-          <Para>HomeWise Inc. ("HomeWise," "we," "us," or "our") operates the HomeWise mobile application. This Privacy Policy explains how we collect, use, disclose, and protect information about you when you use our Services.</Para>
+          <Para>HomeWise Inc. (&quot;HomeWise,&quot; &quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the HomeWise mobile application. This Privacy Policy explains how we collect, use, disclose, and protect information about you when you use our Services.</Para>
           <Para>By using HomeWise, you agree to the collection and use of information in accordance with this policy.</Para>
         </Section>
 
@@ -68,13 +68,13 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="Data Storage">
-          <Para>HomeWise stores your data locally on your device using secure device storage. Photos and documents you upload are saved to your device's local file system within the HomeWise app container.</Para>
+          <Para>HomeWise stores your data locally on your device using secure device storage. Photos and documents you upload are saved to your device&apos;s local file system within the HomeWise app container.</Para>
           <Para>In the premium version, data may be optionally backed up to encrypted cloud storage. Cloud storage uses industry-standard AES-256 encryption at rest and TLS in transit.</Para>
         </Section>
 
         <Section title="AI Assistant">
-          <Para>When you use the AI Home Assistant feature, your property data (addresses, maintenance records, appliance details) is sent to Anthropic's API to generate responses. This data is used solely to answer your questions and is not used to train AI models.</Para>
-          <Para>Please review Anthropic's Privacy Policy at anthropic.com/privacy for details on their data handling practices.</Para>
+          <Para>When you use the AI Home Assistant feature, your property data (addresses, maintenance records, appliance details) is sent to Anthropic&apos;s API to generate responses. This data is used solely to answer your questions and is not used to train AI models.</Para>
+          <Para>Please review Anthropic&apos;s Privacy Policy at anthropic.com/privacy for details on their data handling practices.</Para>
         </Section>
 
         <Section title="Data Sharing">
@@ -102,7 +102,7 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="Changes to This Policy">
-          <Para>We may update this Privacy Policy from time to time. We will notify you of significant changes by posting the new policy in the app and updating the "Last updated" date above.</Para>
+          <Para>We may update this Privacy Policy from time to time. We will notify you of significant changes by posting the new policy in the app and updating the &quot;Last updated&quot; date above.</Para>
         </Section>
 
         <Section title="Contact Us">

@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { upsertUserEntitlement } from "@/lib/entitlementWrite";
 import type { DiscountType, EntitlementKey, PlanKey, PromoCode } from "@/types/admin";
 
 export type PromoCodeInput = {
@@ -185,14 +186,7 @@ export async function grantPromoEntitlement(
   userId: string,
   entitlement: EntitlementKey
 ): Promise<void> {
-  const { error } = await supabase.from("user_entitlements").upsert(
-    { user_id: userId, entitlement, granted_by: userId },
-    { onConflict: "user_id,entitlement" }
-  );
-
-  if (error && !isMissingTableError(error.message)) {
-    throw new Error(error.message);
-  }
+  await upsertUserEntitlement(userId, entitlement, userId);
 }
 
 // ── Admin CRUD (backward-compatible aliases) ────────────────────

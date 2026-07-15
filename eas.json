@@ -3,7 +3,14 @@
     "version": ">= 10.0.0"
   },
   "build": {
+    "base": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://plkiryejrbbyorupdgzu.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsa2lyeWVqcmJieW9ydXBkZ3p1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjMyNjMsImV4cCI6MjA5NjYzOTI2M30.F26SP9qMqgs8jdgnADhyaw8F_8-pFXY7bAw3XMsBulo"
+      }
+    },
     "development": {
+      "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -11,12 +18,14 @@
       }
     },
     "preview": {
+      "extends": "base",
       "distribution": "internal",
       "ios": {
         "simulator": false
       }
     },
     "production": {
+      "extends": "base",
       "autoIncrement": true,
       "ios": {
         "credentialsSource": "remote"

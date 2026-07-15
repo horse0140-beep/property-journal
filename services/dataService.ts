@@ -3,9 +3,13 @@ import * as maintenanceService from "@/services/maintenanceService";
 import * as applianceService from "@/services/applianceService";
 import * as repairService from "@/services/repairService";
 import * as vaultService from "@/services/vaultService";
+import * as photoService from "@/services/photoService";
 import * as scoreService from "@/services/scoreService";
+import { requireAuthUserId } from "@/lib/authUser";
 
-export async function loadAllUserData(userId: string) {
+export async function loadAllUserData() {
+  const userId = await requireAuthUserId();
+
   const [
     properties,
     maintenanceItems,
@@ -15,18 +19,17 @@ export async function loadAllUserData(userId: string) {
     photos,
     contractors,
   ] = await Promise.all([
-    propertyService.fetchProperties(userId),
+    propertyService.fetchProperties(),
     maintenanceService.fetchMaintenanceItems(userId),
     repairService.fetchRepairs(userId),
     applianceService.fetchAppliances(userId),
     vaultService.fetchAllVaultDocuments(userId),
-    vaultService.fetchPhotos(userId),
+    photoService.fetchPhotos(),
     vaultService.fetchContractors(userId),
   ]);
 
   const propertyIds = properties.map((p) => p.id);
 
-  // Optional data — missing tables/columns must not block core screens.
   const [scoreMap, paintColors] = await Promise.all([
     scoreService.fetchPropertyScores(userId, propertyIds),
     vaultService.fetchPaintColors(userId),

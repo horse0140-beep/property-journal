@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { AppState } from "react-native";
 import { createClient } from "@supabase/supabase-js";
 
 function normalizeSupabaseUrl(url: string): string {
@@ -32,8 +33,20 @@ export const supabase = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      flowType: "pkce",
     },
   }
 );
+
+// Supabase's recommended React Native pattern: only refresh tokens while the
+// app is foregrounded, and refresh immediately on resume so requests after a
+// long background period don't hit an expired access token.
+AppState.addEventListener("change", (state) => {
+  if (state === "active") {
+    supabase.auth.startAutoRefresh();
+  } else {
+    supabase.auth.stopAutoRefresh();
+  }
+});
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);

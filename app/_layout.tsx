@@ -12,7 +12,9 @@ import { UpgradeProvider } from "@/context/UpgradeContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { colors } from "@/constants/theme";
 import { setupNotificationListeners } from "@/lib/notifications";
-import { registerPushToken } from "@/services/pushService";
+import { isAuthCallbackUrl, isRecoveryUrl } from "@/lib/authSessionFromUrl";
+import { supportsRemotePush } from "@/lib/expoRuntime";
+import { registerPushToken, subscribePushTokenChanges } from "@/services/pushService";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
@@ -25,12 +27,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const inOnboarding = segments[0] === "onboarding";
     const inLegal = segments[0] === "legal";
     const inAdmin = segments[0] === "admin";
+    const inShare = segments[0] === "share";
 
-    if (inLegal || inAdmin) return;
+    if (inLegal || inAdmin || inShare) return;
 
     if (!isSignedIn && !inAuthGroup) {
       router.replace("/auth/sign-in");
-    } else if (isSignedIn && inAuthGroup && segments.at(1) !== "reset-password") {
+    } else if (
+      isSignedIn &&
+      inAuthGroup &&
+      segments.at(1) !== "reset-password" &&
+      segments.at(1) !== "confirm-email" &&
+      segments.at(1) !== "callback"
+    ) {
       AsyncStorage.getItem("HOMEWISE_ONBOARDED_V1").then((v) => {
         router.replace(v === "1" ? "/(tabs)" : "/onboarding");
       });
@@ -52,9 +61,11 @@ function NotificationBootstrap() {
   const { user, isSignedIn } = useAuth();
 
   useEffect(() => {
-    if (!isSignedIn || !user?.notificationsEnabled) return;
+    if (!isSignedIn || !user?.notificationsEnabled || !supportsRemotePush()) return;
 
-    registerPushToken(user.id).catch(() => {});
+    void registerPushToken();
+    const unsubscribe = subscribePushTokenChanges();
+    return unsubscribe;
   }, [isSignedIn, user?.id, user?.notificationsEnabled]);
 
   useEffect(() => {
@@ -75,9 +86,16 @@ function NotificationBootstrap() {
 function DeepLinkHandler() {
   useEffect(() => {
     function handleUrl(url: string) {
-      if (url.includes("reset-password") || url.includes("type=recovery")) {
-        router.replace("/auth/reset-password");
+      if (!isAuthCallbackUrl(url)) return;
+
+      // Pass the URL through params — on warm starts getInitialURL() is stale
+      // and the target screen's own listener may have missed the event.
+      if (isRecoveryUrl(url)) {
+        router.replace({ pathname: "/auth/reset-password", params: { url } });
+        return;
       }
+
+      router.replace({ pathname: "/auth/callback", params: { url } });
     }
 
     Linking.getInitialURL().then((url) => {
@@ -92,11 +110,11 @@ function DeepLinkHandler() {
 }
 
 function AppProviders({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { isSignedIn } = useAuth();
   return (
     <SubscriptionProvider>
       <UpgradeProvider>
-        <HomeWiseProvider userId={user?.id}>
+        <HomeWiseProvider isSignedIn={isSignedIn}>
           <NotificationBootstrap />
           <DeepLinkHandler />
           {children}
@@ -120,6 +138,8 @@ export default function RootLayout() {
               <Stack.Screen name="auth/sign-up" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="auth/reset-password" options={{ animation: "fade" }} />
+              <Stack.Screen name="auth/callback" options={{ animation: "fade" }} />
+              <Stack.Screen name="auth/confirm-email" options={{ animation: "fade" }} />
               <Stack.Screen name="onboarding/index" options={{ animation: "fade" }} />
               <Stack.Screen name="legal/privacy" options={{ presentation: "modal" }} />
               <Stack.Screen name="legal/terms" options={{ presentation: "modal" }} />
@@ -129,7 +149,10 @@ export default function RootLayout() {
               <Stack.Screen name="features" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="account" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="subscriptions" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="properties" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="share" options={{ animation: "fade" }} />
               <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="score" options={{ animation: "slide_from_right" }} />
             </Stack>
           </AuthGate>
         </AppProviders>

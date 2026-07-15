@@ -202,6 +202,13 @@ export function HomeWiseProvider({
   const renderedScoresRef = useRef<Record<string, PropertyScore>>({});
   const isSignedInRef = useRef(isSignedIn);
   isSignedInRef.current = isSignedIn;
+  // Only the first load (or post-sign-out load) shows the full-screen spinner;
+  // background refreshes after saves must not blank every mounted tab.
+  const hasLoadedOnceRef = useRef(false);
+
+  // Score recomputation requests, flushed in an effect after the data commit
+  // so computeScore always sees fresh state (setState updaters stay pure).
+  const [pendingScoreBumps, setPendingScoreBumps] = useState<string[]>([]);
 
   const persistScore = useCallback(
     async (propertyId: string, score: PropertyScore) => {
@@ -222,11 +229,12 @@ export function HomeWiseProvider({
       setState(EMPTY_STATE);
       setScoreMap({});
       renderedScoresRef.current = {};
+      hasLoadedOnceRef.current = false;
       setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
+    if (!hasLoadedOnceRef.current) setIsLoading(true);
     setLoadError(null);
 
     try {
@@ -255,6 +263,7 @@ export function HomeWiseProvider({
         };
       });
       setScoreMap(data.scoreMap);
+      hasLoadedOnceRef.current = true;
 
       for (const prop of data.properties) {
         if (!isSignedInRef.current) return;
@@ -309,6 +318,7 @@ export function HomeWiseProvider({
       setState(EMPTY_STATE);
       setScoreMap({});
       renderedScoresRef.current = {};
+      hasLoadedOnceRef.current = false;
       setIsLoading(false);
       setLoadError(null);
       return;
@@ -317,6 +327,20 @@ export function HomeWiseProvider({
     // Only react to auth transitions — not refreshData identity changes while signed in.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
+
+  // Flush queued score bumps after the triggering data mutation has committed.
+  useEffect(() => {
+    if (pendingScoreBumps.length === 0) return;
+    const unique = [...new Set(pendingScoreBumps)];
+    setPendingScoreBumps([]);
+    for (const propertyId of unique) {
+      const score = computeScore(propertyId, state);
+      setScoreMap((m) => ({ ...m, [propertyId]: score }));
+      if (isSignedIn) void persistScore(propertyId, score);
+    }
+    // state is intentionally read at flush time, not tracked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScoreBumps]);
 
   const syncError = useCallback((action: string, err: unknown) => {
     showRealSaveError("HomeWiseContext", action, err);
@@ -334,12 +358,7 @@ export function HomeWiseProvider({
     }
 
     function bumpScore(propertyId: string) {
-      setState((s) => {
-        const score = computeScore(propertyId, s);
-        if (isSignedIn) persistScore(propertyId, score);
-        setScoreMap((m) => ({ ...m, [propertyId]: score }));
-        return s;
-      });
+      setPendingScoreBumps((prev) => [...prev, propertyId]);
     }
 
     return {
@@ -352,7 +371,6 @@ export function HomeWiseProvider({
 
       addProperty: async (p) => {
         const newProp: Property = { ...p, id: uuid(), isSelected: state.properties.length === 0 };
-        const priorProperties = state.properties;
         const priorSelectedId = state.selectedPropertyId;
 
         setState((s) => ({
@@ -373,17 +391,17 @@ export function HomeWiseProvider({
           if (created.isSelected) {
             void propertyService.setSelectedProperty(created.id);
           }
-          const score = computeScore(created.id, {
-            ...state,
-            properties: [...priorProperties, created],
-          });
+          const score = computeScore(created.id, state);
           void persistScore(created.id, score);
           return created;
         } catch (e) {
+          // Surgical rollback — remove only this property so concurrent
+          // optimistic saves are never clobbered.
           setState((s) => ({
             ...s,
-            properties: priorProperties,
-            selectedPropertyId: priorSelectedId,
+            properties: s.properties.filter((pr) => pr.id !== newProp.id),
+            selectedPropertyId:
+              s.selectedPropertyId === newProp.id ? priorSelectedId : s.selectedPropertyId,
           }));
           throw e;
         }
@@ -447,7 +465,6 @@ export function HomeWiseProvider({
 
       addMaintenanceItem: async (item) => {
         const newItem = { ...item, id: uuid() };
-        const prior = state.maintenanceItems;
         setState((s) => ({ ...s, maintenanceItems: [newItem, ...s.maintenanceItems] }));
         bumpScore(item.propertyId);
         if (!isSignedIn) return newItem;
@@ -460,19 +477,22 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, maintenanceItems: prior }));
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.filter((m) => m.id !== newItem.id),
+          }));
           throw e;
         }
       },
 
       updateMaintenanceItem: async (id, item) => {
         const previous = state.maintenanceItems.find((m) => m.id === id);
-        setState((s) => {
-          const updated = s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...item } : m));
-          const pid = updated.find((m) => m.id === id)?.propertyId;
-          if (pid) bumpScore(pid);
-          return { ...s, maintenanceItems: updated };
-        });
+        setState((s) => ({
+          ...s,
+          maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...item } : m)),
+        }));
+        const pid = item.propertyId ?? previous?.propertyId;
+        if (pid) bumpScore(pid);
         if (!isSignedIn) return;
         try {
           const userId = await requireAuthUserId();
@@ -535,7 +555,6 @@ export function HomeWiseProvider({
 
       addRepair: async (r) => {
         const newItem = { ...r, id: uuid() };
-        const prior = state.repairs;
         setState((s) => ({ ...s, repairs: [newItem, ...s.repairs] }));
         bumpScore(r.propertyId);
         if (!isSignedIn) return newItem;
@@ -575,7 +594,7 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, repairs: prior }));
+          setState((s) => ({ ...s, repairs: s.repairs.filter((rp) => rp.id !== newItem.id) }));
           throw e;
         }
       },
@@ -630,7 +649,6 @@ export function HomeWiseProvider({
           throw new Error("Appliance name is required.");
         }
         const newItem = { ...a, id: uuid(), name: displayName };
-        const prior = state.appliances;
         setState((s) => ({ ...s, appliances: [newItem, ...s.appliances] }));
         bumpScore(a.propertyId);
         if (!isSignedIn) return newItem;
@@ -643,7 +661,10 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, appliances: prior }));
+          setState((s) => ({
+            ...s,
+            appliances: s.appliances.filter((ap) => ap.id !== newItem.id),
+          }));
           throw e;
         }
       },
@@ -699,7 +720,6 @@ export function HomeWiseProvider({
         if (!d.fileUri?.trim()) throw new Error("Please choose a file before saving.");
 
         const newDoc = { ...d, id: uuid(), title, propertyId };
-        const prior = state.documents;
         setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
         bumpScore(propertyId);
         if (!isSignedIn) return newDoc;
@@ -795,7 +815,10 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, documents: prior }));
+          setState((s) => ({
+            ...s,
+            documents: s.documents.filter((docItem) => docItem.id !== newDoc.id),
+          }));
           throw e;
         }
       },
@@ -833,7 +856,6 @@ export function HomeWiseProvider({
 
       addPaintColor: async (p) => {
         const newItem = { ...p, id: uuid() };
-        const prior = state.paintColors;
         setState((s) => ({ ...s, paintColors: [newItem, ...s.paintColors] }));
         if (!isSignedIn) return newItem;
         try {
@@ -845,7 +867,10 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, paintColors: prior }));
+          setState((s) => ({
+            ...s,
+            paintColors: s.paintColors.filter((pc) => pc.id !== newItem.id),
+          }));
           throw e;
         }
       },
@@ -861,7 +886,6 @@ export function HomeWiseProvider({
 
       addContractor: async (c) => {
         const newItem = { ...c, id: uuid() };
-        const prior = state.contractors;
         setState((s) => ({ ...s, contractors: [newItem, ...s.contractors] }));
         if (!isSignedIn) return newItem;
         try {
@@ -873,7 +897,10 @@ export function HomeWiseProvider({
           }));
           return created;
         } catch (e) {
-          setState((s) => ({ ...s, contractors: prior }));
+          setState((s) => ({
+            ...s,
+            contractors: s.contractors.filter((ct) => ct.id !== newItem.id),
+          }));
           throw e;
         }
       },
@@ -914,7 +941,6 @@ export function HomeWiseProvider({
         if (!p.uri?.trim()) throw new Error("Please choose a photo first.");
 
         const newItem = { ...p, id: uuid(), propertyId };
-        const prior = state.photos;
         if (!isSignedIn) {
           setState((s) => ({ ...s, photos: [newItem, ...s.photos] }));
           return newItem;
@@ -941,7 +967,7 @@ export function HomeWiseProvider({
           }
           return saved;
         } catch (e) {
-          setState((s) => ({ ...s, photos: prior }));
+          setState((s) => ({ ...s, photos: s.photos.filter((ph) => ph.id !== newItem.id) }));
           throw e;
         }
       },

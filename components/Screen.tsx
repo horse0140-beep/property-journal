@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
-import { SafeAreaView, StatusBar, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, styles } from "@/constants/theme";
 
 type Props = {
@@ -15,7 +15,7 @@ export function Screen({ children, noPad, tabScreen }: Props) {
   const bottomPad = tabScreen ? 0 : Math.max(insets.bottom, 8);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
       <View
         style={[

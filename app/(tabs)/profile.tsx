@@ -19,11 +19,18 @@ import { Card } from "@/components/Card";
 import { LoadingView } from "@/components/LoadingView";
 import { colors, styles } from "@/constants/theme";
 import { useTabScrollContentStyle } from "@/constants/layout";
+import { TabScreenHeader } from "@/components/TabScreenHeader";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { cancelAllNotifications, requestNotificationPermission } from "@/lib/notifications";
+import { supportsRemotePush } from "@/lib/expoRuntime";
 import { registerPushToken, unregisterPushTokens } from "@/services/pushService";
-import { OWNER_ADMIN_BADGE } from "@/lib/admin";
+import {
+  isFounderAccount,
+  FOUNDER_ACCOUNT_LABEL,
+  OWNER_ACCESS_LABEL,
+  SUPER_ADMIN_LABEL,
+} from "@/lib/admin";
 
 export default function ProfileScreen() {
   const { selectedProperty, properties, getPropertyScore, resetDemoData } = useHomeWise();
@@ -151,15 +158,15 @@ export default function ProfileScreen() {
         Alert.alert("Permission Required", "Enable notifications in your device settings to receive reminders.");
         return;
       }
-      if (user?.id) {
-        await registerPushToken(user.id).catch(() => {});
+      if (user?.id && supportsRemotePush()) {
+        await registerPushToken().catch(() => {});
       }
     }
 
     if (key === "notificationsEnabled" && !value) {
       await cancelAllNotifications();
       if (user?.id) {
-        await unregisterPushTokens(user.id).catch(() => {});
+        await unregisterPushTokens().catch(() => {});
       }
     }
 
@@ -300,18 +307,9 @@ export default function ProfileScreen() {
 
   return (
     <Screen noPad tabScreen>
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 12,
-          backgroundColor: colors.bgCard,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        }}
-      >
-        <Text style={styles.screenTitle}>Profile</Text>
-      </View>
+      <TabScreenHeader>
+        <Text style={styles.tabHeaderTitle}>Profile</Text>
+      </TabScreenHeader>
 
       <ScrollView contentContainerStyle={tabScrollStyle}>
         {isOwner || isAdmin ? (
@@ -389,7 +387,25 @@ export default function ProfileScreen() {
             {user?.phone ? `Phone: ${user.phone}` : "Phone: Not added"}
           </Text>
 
-          {isOwner ? (
+          {isFounderAccount(user?.email) ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {[FOUNDER_ACCOUNT_LABEL, OWNER_ACCESS_LABEL, SUPER_ADMIN_LABEL].map((label) => (
+                <View
+                  key={label}
+                  style={{
+                    backgroundColor: colors.gold,
+                    paddingHorizontal: 12,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>
+                    {label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : isOwner ? (
             <View
               style={{
                 backgroundColor: colors.gold,
@@ -400,7 +416,7 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>
-                OWNER ACCESS / {OWNER_ADMIN_BADGE}
+                {OWNER_ACCESS_LABEL}
               </Text>
             </View>
           ) : isAdmin ? (
@@ -872,6 +888,7 @@ export default function ProfileScreen() {
           >
             DANGER ZONE
           </Text>
+          {!isFounderAccount(user?.email) && (
           <View
             style={{
               backgroundColor: colors.bgCard,
@@ -888,6 +905,7 @@ export default function ProfileScreen() {
               onPress={() => router.push("/account/delete")}
             />
           </View>
+          )}
         </View>
 
         <View style={{ paddingHorizontal: 16, marginTop: 20 }}>

@@ -10,6 +10,12 @@ export function emptyToNull(value: unknown): string | null {
 }
 
 /** Parse a numeric form value; empty → null. */
+/** Parse free-text cost ("$1,450", "450.50", "abc") to a finite number, defaulting to 0. */
+export function parseCostNumber(value: unknown): number {
+  const n = parseFloat(String(value ?? "").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function toNumericOrNull(value: unknown): number | null {
   if (value === undefined || value === null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;

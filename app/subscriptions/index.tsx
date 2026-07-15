@@ -214,8 +214,6 @@ export default function SubscriptionCenterScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -289,7 +287,7 @@ export default function SubscriptionCenterScreen() {
               <Ionicons name="time-outline" size={24} color={colors.info} />
               <Text style={{ color: colors.info, fontWeight: "700", flex: 1, lineHeight: 20 }}>
                 Subscriptions Coming Soon — In-app purchases require a native build with RevenueCat
-                keys. You can still redeem promo codes or subscribe via Stripe.
+                keys. You can still redeem promo codes{Platform.OS !== "ios" ? " or subscribe via Stripe" : ""}.
               </Text>
             </View>
           </Card>
@@ -460,7 +458,7 @@ export default function SubscriptionCenterScreen() {
           </Pressable>
         )}
 
-        {!revenueCatConfigured && !ownerAccount && (
+        {!revenueCatConfigured && !ownerAccount && Platform.OS !== "ios" && (
           <Pressable
             style={styles.secondaryButton}
             onPress={() => router.push("/features/billing")}

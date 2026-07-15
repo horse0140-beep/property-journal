@@ -9,15 +9,26 @@ import {
   useState,
 } from "react";
 import type { User } from "@supabase/supabase-js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { deleteOwnAccount } from "@/services/accountService";
 import { logOutRevenueCat } from "@/services/revenueCatService";
+import { unregisterPushTokens } from "@/services/pushService";
+import { cancelAllNotifications } from "@/lib/notifications";
 import { ensureOwnerAdminRole } from "@/services/adminService";
 import {
   isOwnerAdminEmail,
   resolveIsAdmin,
   SUPER_ADMIN_ROLE,
+  FOUNDER_PLAN,
 } from "@/lib/admin";
+import {
+  getConfirmEmailRedirectUrl,
+  getResetPasswordRedirectUrl,
+  logAuthRedirectUrl,
+} from "@/lib/authRedirect";
+import { ensureAuthProfileRow, requireAuthUserId } from "@/lib/authUser";
 
 export type UserProfile = {
   id: string;
@@ -63,6 +74,8 @@ type UserRoleRow = {
 type AuthState = {
   isLoaded: boolean;
   isSignedIn: boolean;
+  /** Always from supabase.auth.getUser() — never profiles.id alone. */
+  authUserId: string | null;
   user: UserProfile | null;
   /** From user_roles.role — never from profiles. */
   role: string | null;
@@ -72,7 +85,11 @@ type AuthState = {
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error?: string }>;
+  signUp: (
+    email: string,
+    password: string,
+    name: string
+  ) => Promise<{ error?: string; needsEmailConfirmation?: boolean }>;
   signOut: () => Promise<{ error?: string }>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ error?: string }>;
   updatePassword: (current: string, next: string) => Promise<{ error?: string }>;
@@ -83,16 +100,18 @@ type AuthContextValue = AuthState & {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function mapProfileRow(row: ProfileRow, email?: string): UserProfile {
+const STALE_LOCAL_AUTH_KEYS = ["HOMEWISE_USERS_V1", "HOMEWISE_DEMO_SEEDED_V1"] as const;
+
+function mapProfileRow(row: ProfileRow, authUserId: string, email?: string): UserProfile {
   const resolvedEmail = email ?? row.email;
   const owner = isOwnerAdminEmail(resolvedEmail);
   return {
-    id: row.id,
+    id: authUserId,
     email: row.email,
     name: row.name ?? row.full_name ?? "HomeWise User",
     phone: row.phone ?? "",
     avatarUri: row.avatar_uri ?? undefined,
-    plan: row.plan ?? "free",
+    plan: owner ? FOUNDER_PLAN : (row.plan ?? "free"),
     ownerAccess: owner,
     createdAt: row.created_at,
     notificationsEnabled: row.notifications_enabled ?? true,
@@ -116,7 +135,7 @@ function profileFromAuthUser(authUser: User): UserProfile {
     name: (meta.name as string) ?? authUser.email?.split("@")[0] ?? "HomeWise User",
     phone: (meta.phone as string) ?? "",
     avatarUri: meta.avatar_uri as string | undefined,
-    plan: "free",
+    plan: owner ? FOUNDER_PLAN : "free",
     ownerAccess: owner,
     createdAt: authUser.created_at ?? new Date().toISOString(),
     notificationsEnabled: true,
@@ -167,7 +186,7 @@ function authErrorMessage(message: string): string {
 }
 
 async function ensureProfileExists(authUser: User): Promise<UserProfile> {
-  const fallbackProfile = profileFromAuthUser(authUser);
+  await ensureAuthProfileRow(authUser);
 
   const { data, error } = await supabase
     .from("profiles")
@@ -180,18 +199,10 @@ async function ensureProfileExists(authUser: User): Promise<UserProfile> {
   }
 
   if (data) {
-    return mapProfileRow(data as ProfileRow, authUser.email ?? undefined);
+    return mapProfileRow(data as ProfileRow, authUser.id, authUser.email ?? undefined);
   }
 
-  const { error: upsertError } = await supabase
-    .from("profiles")
-    .upsert(profileToRow(fallbackProfile), { onConflict: "id" });
-
-  if (upsertError) {
-    console.warn("Failed to create profile:", upsertError.message);
-  }
-
-  return fallbackProfile;
+  return profileFromAuthUser(authUser);
 }
 
 async function fetchUserRole(userId: string): Promise<string | null> {
@@ -236,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     isLoaded: false,
     isSignedIn: false,
+    authUserId: null,
     user: null,
     role: null,
     isAdmin: false,
@@ -245,11 +257,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const userRef = useRef<UserProfile | null>(null);
   userRef.current = state.user;
 
-  const applySession = useCallback(async (authUser: User | null) => {
-    if (!authUser) {
+  // Monotonic sequence so a stale in-flight applySession can never overwrite
+  // newer auth state (e.g. a slow sign-in landing after a sign-out).
+  const applySessionSeq = useRef(0);
+
+  const applySession = useCallback(async (sessionUser: User | null) => {
+    const seq = ++applySessionSeq.current;
+    const isCurrent = () => applySessionSeq.current === seq;
+
+    if (!sessionUser) {
       setState({
         isLoaded: true,
         isSignedIn: false,
+        authUserId: null,
         user: null,
         role: null,
         isAdmin: false,
@@ -258,14 +278,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (!isCurrent()) return;
+
+    if (authError || !authUser) {
+      console.warn("[auth] getUser failed during applySession — signing out", authError?.message);
+      await supabase.auth.signOut().catch(() => {});
+      if (!isCurrent()) return;
+      setState({
+        isLoaded: true,
+        isSignedIn: false,
+        authUserId: null,
+        user: null,
+        role: null,
+        isAdmin: false,
+        isOwner: false,
+      });
+      return;
+    }
+
+    if (sessionUser.id !== authUser.id) {
+      console.warn(
+        `[auth] session/getUser id mismatch session=${sessionUser.id} getUser=${authUser.id}`
+      );
+    }
+
     const email = authUser.email ?? "";
     const isOwner = isOwnerAdminEmail(email);
 
-    // Owner: unlock immediately before user_roles fetch completes
     if (isOwner) {
       setState({
         isLoaded: true,
         isSignedIn: true,
+        authUserId: authUser.id,
         user: profileFromAuthUser(authUser),
         role: SUPER_ADMIN_ROLE,
         isAdmin: true,
@@ -273,19 +322,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    const { profile, role, isAdmin, isOwner: ownerFlag } = await fetchProfileAndRole(
-      authUser.id,
-      authUser
-    );
+    try {
+      const { profile, role, isAdmin, isOwner: ownerFlag } = await fetchProfileAndRole(
+        authUser.id,
+        authUser
+      );
 
-    setState({
-      isLoaded: true,
-      isSignedIn: true,
-      user: profile,
-      role,
-      isAdmin,
-      isOwner: ownerFlag,
-    });
+      if (!isCurrent()) return;
+
+      const syncedProfile: UserProfile = { ...profile, id: authUser.id };
+
+      console.warn(`[auth] applySession Authenticated user: ${authUser.id}`);
+      console.warn(`[auth] applySession profile.id (forced): ${syncedProfile.id}`);
+
+      setState({
+        isLoaded: true,
+        isSignedIn: true,
+        authUserId: authUser.id,
+        user: syncedProfile,
+        role,
+        isAdmin,
+        isOwner: ownerFlag,
+      });
+    } catch (e) {
+      // Never brick the cold start on a transient profile/role fetch failure —
+      // fall back to a profile built from the auth user itself.
+      console.warn("[auth] profile/role fetch failed — using auth-user fallback:", e);
+      if (!isCurrent()) return;
+      setState({
+        isLoaded: true,
+        isSignedIn: true,
+        authUserId: authUser.id,
+        user: profileFromAuthUser(authUser),
+        role: isOwner ? SUPER_ADMIN_ROLE : null,
+        isAdmin: isOwner,
+        isOwner,
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -303,8 +376,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+      // getSession() above already handles startup — skip the duplicate
+      // INITIAL_SESSION so app start doesn't run the profile fetch twice.
+      if (event === "INITIAL_SESSION") return;
       applySession(session?.user ?? null);
     });
 
@@ -338,11 +414,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: "Please enter a valid email address." };
     }
 
+    const emailRedirectTo = getConfirmEmailRedirectUrl();
+    logAuthRedirectUrl("signUp emailRedirectTo", emailRedirectTo);
+
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password,
       options: {
         data: { name: name.trim() },
+        emailRedirectTo,
       },
     });
 
@@ -354,11 +434,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: "Sign up failed. Please try again." };
     }
 
+    // Supabase's email-enumeration protection returns a stub user with no
+    // identities when the address is already registered.
+    if (!data.session && data.user.identities?.length === 0) {
+      return { error: "An account with this email already exists. Try signing in instead." };
+    }
+
     if (!data.session) {
-      return {
-        error:
-          "Please check your email and confirm your account before signing in.",
-      };
+      return { needsEmailConfirmation: true };
     }
 
     const profile: UserProfile = {
@@ -377,24 +460,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       emailDigest: false,
     };
 
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .upsert(profileToRow(profile), { onConflict: "id" });
+    try {
+      await ensureAuthProfileRow(data.user);
 
-    if (profileError) {
-      return { error: profileError.message };
-    }
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert(profileToRow(profile), { onConflict: "id" });
 
-    if (isOwnerAdminEmail(normalizedEmail)) {
-      await ensureOwnerAdminRole(data.user.id, normalizedEmail);
+      if (profileError) {
+        console.warn("[auth] signUp profile upsert failed:", profileError.message);
+      }
+
+      if (isOwnerAdminEmail(normalizedEmail)) {
+        await ensureOwnerAdminRole(data.user.id, normalizedEmail);
+      }
+    } catch (e) {
+      // The auth account exists and is signed in — profile bootstrap will be
+      // retried by applySession. Never fail the sign-up at this point.
+      console.warn("[auth] signUp profile bootstrap failed (non-fatal):", e);
     }
 
     return {};
   }, []);
 
   const signOut = useCallback(async () => {
-    await logOutRevenueCat().catch(() => {});
+    setState({
+      isLoaded: true,
+      isSignedIn: false,
+      authUserId: null,
+      user: null,
+      role: null,
+      isAdmin: false,
+      isOwner: false,
+    });
+
+    router.replace("/auth/sign-in");
+
+    void logOutRevenueCat().catch(() => {});
+    void cancelAllNotifications().catch(() => {});
+
+    // Must run before signOut — token delete needs the authenticated session.
+    await unregisterPushTokens().catch(() => {});
+
     const { error } = await supabase.auth.signOut();
+    await AsyncStorage.multiRemove([...STALE_LOCAL_AUTH_KEYS]).catch(() => {});
     if (error) {
       return { error: authErrorMessage(error.message) };
     }
@@ -408,9 +517,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: "Not signed in." };
     }
 
+    let authUserId: string;
+    try {
+      authUserId = await requireAuthUserId();
+    } catch {
+      return { error: "Please sign in again." };
+    }
+
     const updated: UserProfile = {
       ...current,
       ...updates,
+      id: authUserId,
       name: updates.name ?? current.name,
       phone: updates.phone ?? current.phone,
     };
@@ -444,7 +561,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data, error } = await supabase
       .from("profiles")
-      .upsert({ id: updated.id, email: updated.email, ...row }, { onConflict: "id" })
+      .upsert({ id: authUserId, email: updated.email, ...row }, { onConflict: "id" })
       .select()
       .single();
 
@@ -453,9 +570,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const saved = data
-      ? mapProfileRow(data as ProfileRow, current.email)
-      : { ...updated, ownerAccess: isOwnerAdminEmail(current.email) };
-    setState((s) => ({ ...s, user: saved }));
+      ? mapProfileRow(data as ProfileRow, authUserId, current.email)
+      : { ...updated, id: authUserId, ownerAccess: isOwnerAdminEmail(current.email) };
+    setState((s) => ({ ...s, user: saved, authUserId }));
     return {};
   }, []);
 
@@ -492,7 +609,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: "Please enter a valid email address." };
     }
 
-    const redirectTo = "homewise://auth/reset-password";
+    const redirectTo = getResetPasswordRedirectUrl();
+    logAuthRedirectUrl("resetPassword redirectTo", redirectTo);
 
     const { error } = await supabase.auth.resetPasswordForEmail(normalized, {
       redirectTo,

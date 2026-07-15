@@ -30,12 +30,17 @@ export default function SignInScreen() {
     if (!validate()) return;
     setLoading(true);
     setErrors({});
-    const result = await signIn(email.trim().toLowerCase(), password);
-    setLoading(false);
-    if (result.error) {
-      setErrors({ general: result.error });
-    } else {
-      router.replace("/(tabs)");
+    try {
+      const result = await signIn(email.trim().toLowerCase(), password);
+      if (result.error) {
+        setErrors({ general: result.error });
+        setLoading(false);
+      }
+      // On success, keep the spinner — AuthGate navigates once the session is
+      // applied, avoiding a bounce back through this screen.
+    } catch (e) {
+      setErrors({ general: e instanceof Error ? e.message : "Sign in failed. Please try again." });
+      setLoading(false);
     }
   }
 
@@ -88,6 +93,7 @@ export default function SignInScreen() {
             autoCapitalize="none"
             autoComplete="email"
             textContentType="emailAddress"
+            blurOnSubmit={false}
           />
           {errors.email && <Text style={{ color: colors.danger, fontSize: 12, marginTop: 4 }}>{errors.email}</Text>}
 
@@ -103,6 +109,7 @@ export default function SignInScreen() {
               secureTextEntry={!showPassword}
               autoComplete="password"
               textContentType="password"
+              blurOnSubmit={false}
             />
             <Pressable
               onPress={() => setShowPassword((v) => !v)}
@@ -122,6 +129,8 @@ export default function SignInScreen() {
             style={[styles.primaryButton, { marginTop: 20 }, loading && { opacity: 0.7 }]}
             onPress={handleSignIn}
             disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in"
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -133,19 +142,23 @@ export default function SignInScreen() {
 
         {/* Sign up link */}
         <View style={{ flexDirection: "row", justifyContent: "center", marginTop: 24, gap: 4 }}>
-          <Text style={{ color: colors.textMuted, fontSize: 15 }}>Don't have an account?</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 15 }}>Don&apos;t have an account?</Text>
           <Pressable onPress={() => router.push("/auth/sign-up")}>
             <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 15 }}>Sign Up Free</Text>
           </Pressable>
         </View>
 
-        {/* Demo shortcut */}
+        {/* Demo shortcut — development only */}
+        {__DEV__ ? (
         <Pressable
           onPress={() => { setEmail("demo@homewise.app"); setPassword("demo1234"); }}
-          style={{ marginTop: 12, alignItems: "center" }}
+          style={{ marginTop: 12, alignItems: "center", minHeight: 44, justifyContent: "center" }}
+          accessibilityRole="button"
+          accessibilityLabel="Use demo account"
         >
           <Text style={{ color: colors.textMuted, fontSize: 13 }}>Use demo account</Text>
         </Pressable>
+        ) : null}
 
       </ScrollView>
     </KeyboardAvoidingView>

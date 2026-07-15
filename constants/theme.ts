@@ -53,6 +53,11 @@ export const radius = {
   full: 999,
 };
 
+/** Minimum tappable height per Apple HIG / Material guidance. */
+export const touchTarget = 48;
+
+export const hitSlopDefault = { top: 8, bottom: 8, left: 8, right: 8 };
+
 export const shadow = {
   sm: {
     shadowColor: colors.shadow,
@@ -119,6 +124,18 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     marginBottom: 16,
+  },
+  /** Use inside TabScreenHeader — no extra bottom margin. */
+  tabHeaderTitle: {
+    color: colors.textPrimary,
+    fontSize: 24,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  tabHeaderSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   sectionHeader: {
     color: colors.textPrimary,
@@ -230,7 +247,8 @@ export const styles = StyleSheet.create({
   primaryButton: {
     backgroundColor: colors.primary,
     borderRadius: radius.md,
-    paddingVertical: 15,
+    minHeight: touchTarget,
+    paddingVertical: 14,
     paddingHorizontal: 24,
     alignItems: "center",
     flexDirection: "row",
@@ -247,7 +265,8 @@ export const styles = StyleSheet.create({
   secondaryButton: {
     backgroundColor: colors.bgSection,
     borderRadius: radius.md,
-    paddingVertical: 14,
+    minHeight: touchTarget,
+    paddingVertical: 12,
     paddingHorizontal: 24,
     alignItems: "center",
     flexDirection: "row",

@@ -1,9 +1,54 @@
 import { supabase } from "@/lib/supabase";
-import type { Document, PaintColor } from "@/data/demoData";
-import { isMissingSchemaError } from "@/lib/dbErrors";
-import { rowToDocument, rowToPaint } from "@/types/database";
+import { omitMissingOptionalColumn } from "@/lib/dbErrors";
+import { logSaveErrorFull } from "@/lib/saveLogs";
+import { isInsertOkSelectFailed } from "@/lib/realSaveError";
+import { fetchInsertedRow, runSaveWithRetry } from "@/lib/saveReliability";
+import { isRemoteUri } from "@/services/storageService";
+import {
+  setDateFieldNullable,
+  setTextField,
+  toNumericOrNull,
+} from "@/lib/dbSanitize";
+import {
+  contractorToRow,
+  documentToRow,
+  paintToRow,
+  rowToContractor,
+  rowToDocument,
+  rowToPaint,
+} from "@/types/database";
+import type { Document, PaintColor, Contractor } from "@/data/demoData";
 
 type VaultTable = "documents" | "receipts" | "warranties";
+
+const DOCUMENT_OPTIONAL_COLUMNS = ["tags"] as const;
+
+async function insertVaultRow(
+  table: VaultTable,
+  userId: string,
+  doc: Document
+): Promise<Record<string, unknown>> {
+  let payload = documentToRow(userId, doc, table);
+
+  for (;;) {
+    const { data, error } = await supabase.from(table).insert(payload).select().single();
+
+    if (!error) return data!;
+
+    if (isInsertOkSelectFailed(error)) {
+      const fetched = await fetchInsertedRow(table, doc.id, userId);
+      if (fetched) return fetched;
+      return { ...documentToRow(userId, doc, table), id: doc.id };
+    }
+
+    const next = omitMissingOptionalColumn(payload, error.message, DOCUMENT_OPTIONAL_COLUMNS);
+    if (!next) {
+      logSaveErrorFull("document", error);
+      throw new Error(error.message);
+    }
+    payload = next;
+  }
+}
 
 function tableForCategory(category: Document["category"]): VaultTable {
   if (category === "receipt") return "receipts";
@@ -11,27 +56,15 @@ function tableForCategory(category: Document["category"]): VaultTable {
   return "documents";
 }
 
-function docToRow(userId: string, doc: Document) {
-  const base = {
-    id: doc.id,
-    user_id: userId,
-    property_id: doc.propertyId,
-    title: doc.title,
-    file_url: doc.fileUri ?? null,
-    file_type: doc.fileType,
-    file_size: doc.fileSize,
-    upload_date: doc.uploadDate,
-    notes: doc.notes,
-    tags: doc.tags,
-  };
-
-  if (doc.category === "warranty") {
-    return { ...base, expires_date: doc.expiresDate ?? null };
+function handleWriteError<T>(type: string, fallback: T, data: unknown, error: { message: string; code?: string } | null): T {
+  if (error) {
+    if (isInsertOkSelectFailed(error)) {
+      return fallback;
+    }
+    logSaveErrorFull(type, error);
+    throw new Error(error.message);
   }
-  if (doc.category !== "receipt") {
-    return { ...base, category: doc.category, expires_date: doc.expiresDate ?? null };
-  }
-  return base;
+  return (data as T) ?? fallback;
 }
 
 export async function fetchAllVaultDocuments(userId: string): Promise<Document[]> {
@@ -55,87 +88,53 @@ export async function fetchAllVaultDocuments(userId: string): Promise<Document[]
 }
 
 export async function createVaultDocument(userId: string, doc: Document): Promise<Document> {
-  const table = tableForCategory(doc.category);
-  const { data, error } = await supabase
-    .from(table)
-    .insert(docToRow(userId, doc))
-    .select()
-    .single();
+  return runSaveWithRetry("documents", "insert", { id: doc.id, category: doc.category }, async () => {
+    const title = (doc.title ?? "").trim();
+    const propertyId = (doc.propertyId ?? "").trim();
+    const fileUrl = (doc.fileUri ?? "").trim();
 
-  if (error) throw new Error(error.message);
+    if (!title) throw new Error("Document title is required.");
+    if (!propertyId) throw new Error("Property is required.");
+    if (!fileUrl) throw new Error("File is required.");
+    if (!isRemoteUri(fileUrl)) {
+      throw new Error("File must be uploaded before saving.");
+    }
 
-  if (table === "receipts") return rowToDocument(data, "receipt");
-  if (table === "warranties") return rowToDocument(data, "warranty");
-  return rowToDocument(data);
+    const table = tableForCategory(doc.category);
+    const data = await insertVaultRow(table, userId, { ...doc, title, propertyId, fileUri: fileUrl });
+
+    return table === "receipts"
+      ? rowToDocument(data, "receipt")
+      : table === "warranties"
+        ? rowToDocument(data, "warranty")
+        : rowToDocument(data);
+  });
 }
 
 export async function updateVaultDocument(userId: string, doc: Document) {
   const table = tableForCategory(doc.category);
-  const { error } = await supabase
-    .from(table)
-    .update(docToRow(userId, doc))
-    .eq("id", doc.id)
-    .eq("user_id", userId);
+  return runSaveWithRetry(table, "update", { id: doc.id }, async () => {
+    const { data, error } = await supabase
+      .from(table)
+      .update(documentToRow(userId, doc, table))
+      .eq("id", doc.id)
+      .eq("user_id", userId)
+      .select()
+      .single();
 
-  if (error) throw new Error(error.message);
+    if (error && isInsertOkSelectFailed(error)) {
+      const fetched = await fetchInsertedRow(table, doc.id, userId);
+      if (fetched) return rowToDocument(fetched, doc.category === "receipt" ? "receipt" : doc.category === "warranty" ? "warranty" : undefined);
+    }
+
+    handleWriteError("document", doc, data, error);
+    return rowToDocument(data!, doc.category === "receipt" ? "receipt" : doc.category === "warranty" ? "warranty" : undefined);
+  });
 }
 
 export async function deleteVaultDocument(userId: string, doc: Document) {
   const table = tableForCategory(doc.category);
   const { error } = await supabase.from(table).delete().eq("id", doc.id).eq("user_id", userId);
-  if (error) throw new Error(error.message);
-}
-
-export async function fetchPhotos(userId: string) {
-  const { data, error } = await supabase
-    .from("photos")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  return (data ?? []).map((r) => ({
-    id: r.id as string,
-    propertyId: r.property_id as string,
-    uri: r.file_url as string,
-    caption: (r.caption as string) ?? "",
-    date: (r.date as string) ?? "",
-    category: (r.category as string) ?? "general",
-  }));
-}
-
-export async function createPhoto(
-  userId: string,
-  photo: { id: string; propertyId: string; uri: string; caption: string; date: string; category: string }
-) {
-  const { data, error } = await supabase
-    .from("photos")
-    .insert({
-      id: photo.id,
-      user_id: userId,
-      property_id: photo.propertyId,
-      file_url: photo.uri,
-      caption: photo.caption,
-      date: photo.date,
-      category: photo.category,
-    })
-    .select()
-    .single();
-
-  if (error) throw new Error(error.message);
-  return {
-    id: data.id as string,
-    propertyId: data.property_id as string,
-    uri: data.file_url as string,
-    caption: data.caption as string,
-    date: data.date as string,
-    category: data.category as string,
-  };
-}
-
-export async function deletePhoto(userId: string, id: string) {
-  const { error } = await supabase.from("photos").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(error.message);
 }
 
@@ -147,59 +146,56 @@ export async function fetchContractors(userId: string) {
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({
-    id: r.id as string,
-    propertyId: (r.property_id as string) ?? undefined,
-    name: r.name as string,
-    trade: (r.trade as string) ?? "",
-    phone: (r.phone as string) ?? "",
-    email: (r.email as string) ?? "",
-    website: (r.website as string) ?? "",
-    rating: (r.rating as number) ?? 5,
-    notes: (r.notes as string) ?? "",
-    lastUsed: (r.last_used as string) ?? "",
-    licenseNumber: (r.license_number as string) ?? "",
-  }));
+  return (data ?? []).map((r) => rowToContractor(r));
 }
 
-export async function createContractor(userId: string, c: Record<string, unknown>) {
-  const { data, error } = await supabase
-    .from("contractors")
-    .insert({
-      id: c.id,
-      user_id: userId,
-      property_id: c.propertyId ?? null,
-      name: c.name,
-      trade: c.trade ?? "",
-      phone: c.phone ?? "",
-      email: c.email ?? "",
-      website: c.website ?? "",
-      rating: c.rating ?? 5,
-      notes: c.notes ?? "",
-      last_used: c.lastUsed ?? "",
-      license_number: c.licenseNumber ?? "",
-    })
-    .select()
-    .single();
+export async function createContractor(userId: string, c: Contractor) {
+  return runSaveWithRetry("contractors", "insert", { id: c.id }, async () => {
+    const { data, error } = await supabase
+      .from("contractors")
+      .insert(contractorToRow(userId, c))
+      .select()
+      .single();
 
-  if (error) throw new Error(error.message);
-  return data;
+    if (error) {
+      if (isInsertOkSelectFailed(error)) {
+        const fetched = await fetchInsertedRow("contractors", c.id, userId);
+        if (fetched) return rowToContractor(fetched);
+        return c;
+      }
+      logSaveErrorFull("contractor", error);
+      throw new Error(error.message);
+    }
+
+    return rowToContractor(data!);
+  });
 }
 
-export async function updateContractor(userId: string, id: string, updates: Record<string, unknown>) {
-  const row: Record<string, unknown> = {};
-  if (updates.name !== undefined) row.name = updates.name;
-  if (updates.trade !== undefined) row.trade = updates.trade;
-  if (updates.phone !== undefined) row.phone = updates.phone;
-  if (updates.email !== undefined) row.email = updates.email;
-  if (updates.website !== undefined) row.website = updates.website;
-  if (updates.rating !== undefined) row.rating = updates.rating;
-  if (updates.notes !== undefined) row.notes = updates.notes;
-  if (updates.lastUsed !== undefined) row.last_used = updates.lastUsed;
-  if (updates.licenseNumber !== undefined) row.license_number = updates.licenseNumber;
+export async function updateContractor(userId: string, id: string, updates: Partial<Contractor>) {
+  return runSaveWithRetry("contractors", "update", { id, updates }, async () => {
+    const row: Record<string, unknown> = {};
+    if (updates.name !== undefined) row.name = updates.name;
+    if (updates.trade !== undefined) setTextField(row, "trade", updates.trade);
+    if (updates.phone !== undefined) setTextField(row, "phone", updates.phone);
+    if (updates.email !== undefined) setTextField(row, "email", updates.email);
+    if (updates.website !== undefined) setTextField(row, "website", updates.website);
+    if (updates.rating !== undefined) row.rating = toNumericOrNull(updates.rating) ?? 5;
+    if (updates.notes !== undefined) setTextField(row, "notes", updates.notes);
+    if (updates.lastUsed !== undefined) setTextField(row, "last_used", updates.lastUsed);
+    if (updates.licenseNumber !== undefined) setTextField(row, "license_number", updates.licenseNumber);
+    if (updates.propertyId !== undefined) row.property_id = updates.propertyId || null;
 
-  const { error } = await supabase.from("contractors").update(row).eq("id", id).eq("user_id", userId);
-  if (error) throw new Error(error.message);
+    if (Object.keys(row).length === 0) return;
+
+    const { data, error } = await supabase.from("contractors").update(row).eq("id", id).eq("user_id", userId).select().single();
+
+    if (error && isInsertOkSelectFailed(error)) {
+      const fetched = await fetchInsertedRow("contractors", id, userId);
+      if (fetched) return rowToContractor(fetched);
+    }
+
+    return handleWriteError("contractor", { id, ...updates }, data, error);
+  });
 }
 
 export async function deleteContractor(userId: string, id: string) {
@@ -215,38 +211,33 @@ export async function fetchPaintColors(userId: string): Promise<PaintColor[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    if (isMissingSchemaError(error.message)) {
-      console.warn("fetchPaintColors:", error.message);
-    } else {
-      console.warn("fetchPaintColors:", error.message);
-    }
+    console.warn("fetchPaintColors:", error.message);
     return [];
   }
 
   return (data ?? []).map((r) => rowToPaint(r));
 }
 
-export async function createPaintColor(userId: string, p: Record<string, unknown>) {
-  const { data, error } = await supabase
-    .from("paint_colors")
-    .insert({
-      id: p.id,
-      user_id: userId,
-      property_id: p.propertyId,
-      room: p.room,
-      brand: p.brand ?? "",
-      color_name: p.colorName ?? "",
-      color_code: p.colorCode ?? "",
-      finish: p.finish ?? "",
-      hex: p.hex ?? "",
-      purchase_date: p.purchaseDate ?? "",
-      notes: p.notes ?? "",
-    })
-    .select()
-    .single();
+export async function createPaintColor(userId: string, p: PaintColor) {
+  return runSaveWithRetry("paint_colors", "insert", { id: p.id }, async () => {
+    const { data, error } = await supabase
+      .from("paint_colors")
+      .insert(paintToRow(userId, p))
+      .select()
+      .single();
 
-  if (error) throw new Error(error.message);
-  return data;
+    if (error) {
+      if (isInsertOkSelectFailed(error)) {
+        const fetched = await fetchInsertedRow("paint_colors", p.id, userId);
+        if (fetched) return rowToPaint(fetched);
+        return p;
+      }
+      logSaveErrorFull("paint", error);
+      throw new Error(error.message);
+    }
+
+    return rowToPaint(data!);
+  });
 }
 
 export async function deletePaintColor(userId: string, id: string) {

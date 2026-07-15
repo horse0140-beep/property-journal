@@ -1,5 +1,18 @@
 import { supabase } from "@/lib/supabase";
-import { isOwnerAdminEmail, OWNER_ADMIN_EMAIL, SUPER_ADMIN_ROLE } from "@/lib/admin";
+import { upsertUserEntitlement } from "@/lib/entitlementWrite";
+import {
+  isFounderAccount,
+  FOUNDER_EMAIL,
+  LEGACY_FOUNDER_EMAIL,
+  PROTECTED_FOUNDER_EMAILS,
+  OWNER_ADMIN_EMAIL,
+  SUPER_ADMIN_ROLE,
+  FOUNDER_PLAN,
+  FOUNDER_ENTITLEMENTS,
+  PROTECTED_ACCOUNT_MESSAGE,
+} from "@/lib/admin";
+import { assertFounderProtected, assertFounderImmutable, assertSelfAdminSafety } from "@/lib/adminProtection";
+import { logAdminAction } from "@/services/adminAuditService";
 import type {
   AdminDashboardStats,
   AdminStats,
@@ -27,7 +40,7 @@ function isMissingTableError(message: string): boolean {
 // ── Owner bootstrap ─────────────────────────────────────────────
 
 export async function ensureOwnerAdminRole(userId: string, email: string): Promise<void> {
-  if (!isOwnerAdminEmail(email)) return;
+  if (!isFounderAccount(email)) return;
 
   const { error: rpcError } = await supabase.rpc("bootstrap_owner_admin");
 
@@ -43,7 +56,18 @@ export async function ensureOwnerAdminRole(userId: string, email: string): Promi
     console.warn("ensureOwnerAdminRole:", error.message);
   }
 
-  await grantEntitlement(userId, "owner_access").catch(() => {});
+  for (const entitlement of FOUNDER_ENTITLEMENTS) {
+    await grantEntitlement(userId, entitlement, userId).catch(() => {});
+  }
+
+  const { error: planError } = await supabase
+    .from("profiles")
+    .update({ plan: FOUNDER_PLAN })
+    .eq("id", userId);
+
+  if (planError) {
+    console.warn("ensureOwnerAdminRole plan:", planError.message);
+  }
 }
 
 // ── Dashboard stats ─────────────────────────────────────────────
@@ -71,7 +95,7 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
     totalUsers++;
     const plan = (row.plan ?? "free") as PlanKey;
     if (plan in usersByPlan) usersByPlan[plan]++;
-    if (isOwnerAdminEmail(row.email)) ownerAccessUsers++;
+    if (isFounderAccount(row.email)) ownerAccessUsers++;
   }
 
   let entitlements: { user_id: string; entitlement: string }[] = [];
@@ -298,6 +322,13 @@ async function fetchUserEntitlements(): Promise<Map<string, EntitlementKey[]>> {
   return map;
 }
 
+async function getActorId(): Promise<string | null> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.user?.id ?? null;
+}
+
 export async function getUsers(): Promise<AdminUser[]> {
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
@@ -322,22 +353,23 @@ export async function getUsers(): Promise<AdminUser[]> {
 
   return (profiles ?? []).map((p) => {
     const roleEntry = roleMap.get(p.id);
-    const owner = isOwnerAdminEmail(p.email);
+    const founder = isFounderAccount(p.email);
     const entitlements = entitlementMap.get(p.id) ?? [];
     const hasOwnerAccess =
-      owner || entitlements.includes("owner_access") || roleEntry?.role === SUPER_ADMIN_ROLE;
+      founder || entitlements.includes("owner_access") || roleEntry?.role === SUPER_ADMIN_ROLE;
 
     return {
       id: p.id,
       email: p.email,
       name: p.name ?? "HomeWise User",
       phone: p.phone,
-      plan: (p.plan ?? "free") as PlanKey,
+      plan: founder ? FOUNDER_PLAN : ((p.plan ?? "free") as PlanKey),
       created_at: p.created_at,
-      role: owner ? SUPER_ADMIN_ROLE : (roleEntry?.role ?? null),
+      role: founder ? SUPER_ADMIN_ROLE : (roleEntry?.role ?? null),
       role_id: roleEntry?.role_id ?? null,
       entitlements,
       has_owner_access: hasOwnerAccess,
+      is_founder: founder,
     };
   });
 }
@@ -345,22 +377,93 @@ export async function getUsers(): Promise<AdminUser[]> {
 /** @deprecated Use getUsers */
 export const fetchAdminUsers = getUsers;
 
-export async function updateUserPlan(userId: string, plan: PlanKey): Promise<void> {
+export async function updateUserPlan(
+  userId: string,
+  plan: PlanKey,
+  targetEmail?: string,
+  currentRole?: UserRole | null
+): Promise<void> {
+  const actorId = await getActorId();
+  assertFounderImmutable({ targetEmail, nextPlan: plan });
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail,
+    action: plan === "free" ? "downgrade_plan" : "modify",
+    nextPlan: plan,
+    currentRole,
+  });
+
   const { error } = await supabase.from("profiles").update({ plan }).eq("id", userId);
   if (error) throw new Error(error.message);
+
+  if (targetEmail) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail,
+      action: "update_plan",
+      metadata: { plan },
+    });
+  }
 }
 
-export async function grantUserRole(userId: string, role: UserRole): Promise<void> {
+export async function grantUserRole(
+  userId: string,
+  role: UserRole,
+  targetEmail?: string,
+  currentRole?: UserRole | null
+): Promise<void> {
+  assertFounderImmutable({ targetEmail, nextRole: role });
+
+  const actorId = await getActorId();
+  if (currentRole === SUPER_ADMIN_ROLE && role !== SUPER_ADMIN_ROLE) {
+    assertSelfAdminSafety({
+      actorId,
+      targetId: userId,
+      targetEmail,
+      action: "downgrade_role",
+      nextRole: role,
+      currentRole,
+    });
+  }
+
   const { error } = await supabase
     .from("user_roles")
     .upsert({ user_id: userId, role }, { onConflict: "user_id" });
 
   if (error) throw new Error(error.message);
+
+  if (targetEmail) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail,
+      action: "grant_role",
+      metadata: { role },
+    });
+  }
 }
 
-export async function revokeUserRole(userId: string): Promise<void> {
+export async function revokeUserRole(userId: string, targetEmail?: string): Promise<void> {
+  const actorId = await getActorId();
+  assertFounderProtected(targetEmail);
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail,
+    action: "revoke_role",
+    currentRole: SUPER_ADMIN_ROLE,
+  });
+
   const { error } = await supabase.from("user_roles").delete().eq("user_id", userId);
   if (error) throw new Error(error.message);
+
+  if (targetEmail) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail,
+      action: "revoke_role",
+    });
+  }
 }
 
 /** @deprecated Use grantUserRole */
@@ -376,17 +479,24 @@ export async function grantEntitlement(
   entitlement: EntitlementKey,
   grantedBy?: string
 ): Promise<void> {
-  const { error } = await supabase.from("user_entitlements").upsert(
-    { user_id: userId, entitlement, granted_by: grantedBy ?? null },
-    { onConflict: "user_id,entitlement" }
-  );
-
-  if (error && !isMissingTableError(error.message)) {
-    throw new Error(error.message);
-  }
+  await upsertUserEntitlement(userId, entitlement, grantedBy);
 }
 
-export async function revokeEntitlement(userId: string, entitlement: EntitlementKey): Promise<void> {
+export async function revokeEntitlement(
+  userId: string,
+  entitlement: EntitlementKey,
+  targetEmail?: string
+): Promise<void> {
+  assertFounderProtected(targetEmail);
+
+  const actorId = await getActorId();
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail,
+    action: "revoke_entitlement",
+  });
+
   const { error } = await supabase
     .from("user_entitlements")
     .delete()
@@ -396,9 +506,32 @@ export async function revokeEntitlement(userId: string, entitlement: Entitlement
   if (error && !isMissingTableError(error.message)) {
     throw new Error(error.message);
   }
+
+  if (targetEmail) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail,
+      action: "revoke_entitlement",
+      metadata: { entitlement },
+    });
+  }
 }
 
-export async function revokeAllEntitlements(userId: string): Promise<void> {
+export async function revokeAllEntitlements(userId: string, targetEmail?: string): Promise<void> {
+  assertFounderProtected(targetEmail);
+
+  const actorId = await getActorId();
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail,
+    action: "revoke_entitlement",
+  });
+
+  if (isFounderAccount(targetEmail)) {
+    throw new Error(PROTECTED_ACCOUNT_MESSAGE);
+  }
+
   const { error } = await supabase.from("user_entitlements").delete().eq("user_id", userId);
   if (error && !isMissingTableError(error.message)) {
     throw new Error(error.message);
@@ -406,32 +539,83 @@ export async function revokeAllEntitlements(userId: string): Promise<void> {
 }
 
 export async function grantOwnerAccess(userId: string, email: string): Promise<void> {
-  await grantUserRole(userId, SUPER_ADMIN_ROLE);
+  await grantUserRole(userId, SUPER_ADMIN_ROLE, email);
   await grantEntitlement(userId, "owner_access");
-  if (!isOwnerAdminEmail(email)) {
-    await updateUserPlan(userId, "realtor");
+  if (!isFounderAccount(email)) {
+    await updateUserPlan(userId, "realtor", email);
   }
+  await logAdminAction({
+    targetUserId: userId,
+    targetEmail: email,
+    action: "grant_owner",
+  });
 }
 
-export async function grantPlanAccess(userId: string, plan: PlanKey): Promise<void> {
-  await updateUserPlan(userId, plan);
+export async function grantPlanAccess(userId: string, plan: PlanKey, email?: string): Promise<void> {
+  assertFounderImmutable({ targetEmail: email, nextPlan: plan });
+  await updateUserPlan(userId, plan, email);
   if (plan !== "free") {
     await grantEntitlement(userId, plan);
+  }
+  if (email) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail: email,
+      action: "grant_plan",
+      metadata: { plan },
+    });
   }
 }
 
 export async function revokeAccess(userId: string, email: string): Promise<void> {
-  if (isOwnerAdminEmail(email)) {
-    throw new Error("Cannot revoke access for the app owner account.");
+  if (isFounderAccount(email)) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail: email,
+      action: "revoke_blocked",
+    });
+    throw new Error(PROTECTED_ACCOUNT_MESSAGE);
   }
-  await updateUserPlan(userId, "free");
-  await revokeAllEntitlements(userId);
-  await revokeUserRole(userId);
+
+  const actorId = await getActorId();
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail: email,
+    action: "revoke",
+  });
+
+  await updateUserPlan(userId, "free", email);
+  await revokeAllEntitlements(userId, email);
+  await revokeUserRole(userId, email);
+
+  await logAdminAction({
+    targetUserId: userId,
+    targetEmail: email,
+    action: "revoke_access",
+  });
 }
 
-export async function deleteUser(userId: string): Promise<void> {
-  await revokeAllEntitlements(userId).catch(() => {});
-  await revokeUserRole(userId).catch(() => {});
+export async function deleteUser(userId: string, email: string): Promise<void> {
+  if (isFounderAccount(email)) {
+    await logAdminAction({
+      targetUserId: userId,
+      targetEmail: email,
+      action: "delete_user_blocked",
+    });
+    throw new Error(PROTECTED_ACCOUNT_MESSAGE);
+  }
+
+  const actorId = await getActorId();
+  assertSelfAdminSafety({
+    actorId,
+    targetId: userId,
+    targetEmail: email,
+    action: "delete",
+  });
+
+  await revokeAllEntitlements(userId, email).catch(() => {});
+  await revokeUserRole(userId, email).catch(() => {});
 
   const { error: subError } = await supabase.from("subscriptions").delete().eq("user_id", userId);
   if (subError && !isMissingTableError(subError.message)) {
@@ -440,6 +624,12 @@ export async function deleteUser(userId: string): Promise<void> {
 
   const { error } = await supabase.from("profiles").delete().eq("id", userId);
   if (error) throw new Error(error.message);
+
+  await logAdminAction({
+    targetUserId: userId,
+    targetEmail: email,
+    action: "delete_user",
+  });
 }
 
-export { OWNER_ADMIN_EMAIL };
+export { FOUNDER_EMAIL, LEGACY_FOUNDER_EMAIL, PROTECTED_FOUNDER_EMAILS, OWNER_ADMIN_EMAIL };

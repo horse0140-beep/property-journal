@@ -76,7 +76,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [isSignedIn, user, isAdmin, isOwner, updateProfile]);
+    // Depend on the primitives actually used so profile edits (e.g. toggling a
+    // notification switch) don't re-run the full RevenueCat refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, user?.id, user?.plan, isAdmin, isOwner]);
 
   useEffect(() => {
     refresh();

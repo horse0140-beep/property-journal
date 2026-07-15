@@ -1,7 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
-import { Alert, Platform } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import { Alert } from "react-native";
 
 const PHOTO_DIR = `${FileSystem.documentDirectory}homewise/photos/`;
 const DOC_DIR = `${FileSystem.documentDirectory}homewise/documents/`;
@@ -10,8 +10,6 @@ async function ensureDir(dir: string) {
   const info = await FileSystem.getInfoAsync(dir);
   if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
 }
-
-// ── Photo picker ────────────────────────────────────────────────────
 
 export type PickedImage = {
   uri: string;
@@ -24,6 +22,7 @@ export type PickedImage = {
 export async function pickImageFromLibrary(options?: {
   allowsMultiple?: boolean;
   quality?: number;
+  allowsEditing?: boolean;
 }): Promise<PickedImage[] | null> {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (status !== "granted") {
@@ -35,10 +34,12 @@ export async function pickImageFromLibrary(options?: {
     return null;
   }
 
+  const allowsMultiple = options?.allowsMultiple ?? false;
+
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
-    allowsEditing: !options?.allowsMultiple,
-    allowsMultipleSelection: options?.allowsMultiple ?? false,
+    allowsEditing: allowsMultiple ? false : (options?.allowsEditing ?? false),
+    allowsMultipleSelection: allowsMultiple,
     quality: options?.quality ?? 0.8,
     exif: false,
   });
@@ -52,12 +53,18 @@ export async function pickImageFromLibrary(options?: {
     const filename = `photo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
     const dest = `${PHOTO_DIR}${filename}`;
     await FileSystem.copyAsync({ from: asset.uri, to: dest });
-    saved.push({ uri: dest, width: asset.width, height: asset.height, fileSize: asset.fileSize, mimeType: asset.mimeType ?? "image/jpeg" });
+    saved.push({
+      uri: dest,
+      width: asset.width,
+      height: asset.height,
+      fileSize: asset.fileSize,
+      mimeType: asset.mimeType ?? "image/jpeg",
+    });
   }
   return saved;
 }
 
-export async function takePhoto(options?: { quality?: number }): Promise<PickedImage | null> {
+export async function takePhoto(options?: { quality?: number; allowsEditing?: boolean }): Promise<PickedImage | null> {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== "granted") {
     Alert.alert(
@@ -70,7 +77,7 @@ export async function takePhoto(options?: { quality?: number }): Promise<PickedI
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["images"],
-    allowsEditing: true,
+    allowsEditing: options?.allowsEditing ?? false,
     quality: options?.quality ?? 0.85,
     exif: false,
   });
@@ -83,10 +90,14 @@ export async function takePhoto(options?: { quality?: number }): Promise<PickedI
   const dest = `${PHOTO_DIR}${filename}`;
   await FileSystem.copyAsync({ from: asset.uri, to: dest });
 
-  return { uri: dest, width: asset.width, height: asset.height, fileSize: asset.fileSize, mimeType: "image/jpeg" };
+  return {
+    uri: dest,
+    width: asset.width,
+    height: asset.height,
+    fileSize: asset.fileSize,
+    mimeType: "image/jpeg",
+  };
 }
-
-// ── Document picker ─────────────────────────────────────────────────
 
 export type PickedDocument = {
   uri: string;
@@ -99,8 +110,12 @@ export type PickedDocument = {
 export async function pickDocument(): Promise<PickedDocument | null> {
   try {
     const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*", "application/msword",
-             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      type: [
+        "application/pdf",
+        "image/*",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ],
       copyToCacheDirectory: true,
     });
 
@@ -121,7 +136,8 @@ export async function pickDocument(): Promise<PickedDocument | null> {
       mimeType: asset.mimeType ?? "application/pdf",
       formattedSize: formatBytes(asset.size ?? 0),
     };
-  } catch {
+  } catch (e) {
+    console.warn("pickDocument error:", e);
     return null;
   }
 }
@@ -132,8 +148,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-// ── File management ─────────────────────────────────────────────────
 
 export async function deleteLocalFile(uri: string) {
   try {

@@ -46,6 +46,7 @@ export type AdminUser = {
   role_id: string | null;
   entitlements: EntitlementKey[];
   has_owner_access: boolean;
+  is_founder?: boolean;
 };
 
 export type PromoCode = {

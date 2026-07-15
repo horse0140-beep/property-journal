@@ -14,6 +14,7 @@ import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { generateHomeHistoryPDF, sharePDF } from "@/lib/pdfGenerator";
+import { parseCostNumber } from "@/lib/dbSanitize";
 import {
   buildShareUrl,
   createPropertyShare,
@@ -71,7 +72,7 @@ export default function BuyerReportsScreen() {
   const propRepairs = repairs.filter((r) => r.propertyId === pid);
   const propApps = appliances.filter((a) => a.propertyId === pid);
   const propDocs = documents.filter((d) => d.propertyId === pid);
-  const totalInvested = propRepairs.reduce((s, r) => s + parseFloat(r.cost.replace(/,/g, "") || "0"), 0);
+  const totalInvested = propRepairs.reduce((s, r) => s + parseCostNumber(r.cost), 0);
 
   async function handleGeneratePDF() {
     setGeneratingPDF(true);

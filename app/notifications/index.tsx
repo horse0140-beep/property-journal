@@ -12,7 +12,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { LoadingView } from "@/components/LoadingView";
-import { colors, styles } from "@/constants/theme";
+import { EmptyState } from "@/components/EmptyState";
+import { BackLink } from "@/components/EmptyState";
+import { colors, styles, hitSlopDefault } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import {
   getInboxNotifications,
@@ -125,13 +127,7 @@ export default function NotificationCenterScreen() {
           />
         }
       >
-        <Pressable
-          onPress={() => router.back()}
-          style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 16 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontWeight: "700" }}>Back</Text>
-        </Pressable>
+        <BackLink onPress={() => router.back()} />
 
         <View
           style={{
@@ -160,14 +156,24 @@ export default function NotificationCenterScreen() {
         </View>
 
         <View style={[styles.rowBetween, { marginBottom: 12 }]}>
-          <Pressable onPress={() => router.push("/notifications/settings")}>
+          <Pressable
+            onPress={() => router.push("/notifications/settings")}
+            hitSlop={hitSlopDefault}
+            accessibilityRole="button"
+            accessibilityLabel="Notification settings"
+          >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Ionicons name="settings-outline" size={18} color={colors.primary} />
               <Text style={{ color: colors.primary, fontWeight: "700" }}>Settings</Text>
             </View>
           </Pressable>
           {unread > 0 ? (
-            <Pressable onPress={handleMarkAllRead}>
+            <Pressable
+              onPress={handleMarkAllRead}
+              hitSlop={hitSlopDefault}
+              accessibilityRole="button"
+              accessibilityLabel="Mark all notifications as read"
+            >
               <Text style={{ color: colors.primary, fontWeight: "700" }}>Mark all read</Text>
             </Pressable>
           ) : null}
@@ -187,22 +193,16 @@ export default function NotificationCenterScreen() {
         )}
 
         {items.length === 0 && !error ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="notifications-off-outline" size={48} color={colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>No notifications yet</Text>
-            <Text style={styles.emptyStateText}>
-              Maintenance, warranty, appliance, and subscription reminders will appear here.
-            </Text>
-            <Pressable
-              style={styles.primaryButton}
-              onPress={() => router.push("/notifications/settings")}
-            >
-              <Text style={styles.primaryButtonText}>Notification Settings</Text>
-            </Pressable>
-          </View>
+          <EmptyState
+            icon="notifications-off-outline"
+            title="No notifications yet"
+            message="Maintenance reminders, warranty alerts, and subscription updates will appear here."
+            actionLabel="Notification Settings"
+            onAction={() => router.push("/notifications/settings")}
+          />
         ) : (
           items.map((item) => {
-            const meta = NOTIFICATION_TYPE_META[item.type];
+            const meta = NOTIFICATION_TYPE_META[item.type] ?? NOTIFICATION_TYPE_META.system;
             return (
               <Pressable key={item.id} onPress={() => handleOpen(item)}>
                 <Card

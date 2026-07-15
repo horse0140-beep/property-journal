@@ -29,14 +29,18 @@ export function KeyboardModal({
     <ScrollView
       style={[styles.modalSheet, sheetStyle]}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="interactive"
+      keyboardDismissMode="on-drag"
       automaticallyAdjustKeyboardInsets
       showsVerticalScrollIndicator={false}
     >
+      <View style={styles.modalHandle} />
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.modalSheet, sheetStyle]}>{children}</View>
+    <View style={[styles.modalSheet, sheetStyle]}>
+      <View style={styles.modalHandle} />
+      {children}
+    </View>
   );
 
   return (

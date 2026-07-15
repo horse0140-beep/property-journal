@@ -9,6 +9,7 @@ export type PropertyShare = {
   is_active: boolean;
   views_count: number;
   include_personal_info: boolean;
+  snapshot_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };

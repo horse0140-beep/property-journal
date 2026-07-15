@@ -21,7 +21,13 @@ import { AdminSelect } from "@/components/admin/AdminField";
 import { AdminErrorCard } from "@/components/admin/AdminErrorCard";
 import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
-import { SUPER_ADMIN_ROLE } from "@/lib/admin";
+import {
+  SUPER_ADMIN_ROLE,
+  FOUNDER_ACCOUNT_LABEL,
+  OWNER_ACCESS_LABEL,
+  SUPER_ADMIN_LABEL,
+} from "@/lib/admin";
+import { PROTECTED_ACCOUNT_MESSAGE } from "@/lib/adminProtection";
 import {
   deleteUser,
   getUsers,
@@ -47,6 +53,16 @@ const ROLE_OPTIONS = [
   { label: "Support", value: "support" },
   { label: "Moderator", value: "moderator" },
 ];
+
+function FounderBadges() {
+  return (
+    <>
+      <AdminBadge label={FOUNDER_ACCOUNT_LABEL} variant="warning" />
+      <AdminBadge label={OWNER_ACCESS_LABEL} variant="warning" />
+      <AdminBadge label={SUPER_ADMIN_LABEL} variant="warning" />
+    </>
+  );
+}
 
 export default function AdminUsersScreen() {
   const { user: currentUser } = useAuth();
@@ -81,6 +97,10 @@ export default function AdminUsersScreen() {
   );
 
   function openEdit(u: AdminUser) {
+    if (u.is_founder) {
+      Alert.alert("Protected Account", PROTECTED_ACCOUNT_MESSAGE);
+      return;
+    }
     setEditing(u);
     setEditPlan(u.plan);
     setEditRole(u.role ?? "user");
@@ -101,13 +121,17 @@ export default function AdminUsersScreen() {
 
   async function handleSave() {
     if (!editing) return;
+    if (editing.is_founder) {
+      Alert.alert("Protected Account", PROTECTED_ACCOUNT_MESSAGE);
+      return;
+    }
     setSaving(true);
     try {
-      await updateUserPlan(editing.id, editPlan);
+      await updateUserPlan(editing.id, editPlan, editing.email, editing.role);
       if (editRole === "user") {
-        await revokeUserRole(editing.id);
+        await revokeUserRole(editing.id, editing.email);
       } else {
-        await grantUserRole(editing.id, editRole);
+        await grantUserRole(editing.id, editRole, editing.email, editing.role);
       }
       setEditing(null);
       await load();
@@ -120,6 +144,10 @@ export default function AdminUsersScreen() {
   }
 
   function confirmRevoke(u: AdminUser) {
+    if (u.is_founder) {
+      Alert.alert("Protected Account", PROTECTED_ACCOUNT_MESSAGE);
+      return;
+    }
     if (u.id === currentUser?.id) {
       Alert.alert("Cannot Revoke", "You cannot revoke your own access.");
       return;
@@ -136,6 +164,10 @@ export default function AdminUsersScreen() {
   }
 
   function confirmDelete(u: AdminUser) {
+    if (u.is_founder) {
+      Alert.alert("Protected Account", PROTECTED_ACCOUNT_MESSAGE);
+      return;
+    }
     if (u.id === currentUser?.id) {
       Alert.alert("Cannot Delete", "You cannot delete your own account from admin.");
       return;
@@ -147,7 +179,7 @@ export default function AdminUsersScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await deleteUser(u.id);
+            await deleteUser(u.id, u.email);
             await load();
           } catch (e: unknown) {
             Alert.alert("Error", e instanceof Error ? e.message : "Delete failed");
@@ -166,7 +198,8 @@ export default function AdminUsersScreen() {
       (u.phone ?? "").includes(q) ||
       (u.role ?? "").includes(q) ||
       u.plan.includes(q) ||
-      (u.has_owner_access && "owner".includes(q))
+      (u.has_owner_access && "owner".includes(q)) ||
+      (u.is_founder && "founder".includes(q))
   );
 
   return (
@@ -230,6 +263,7 @@ export default function AdminUsersScreen() {
             ) : (
               filtered.map((u) => {
                 const busy = actionUserId === u.id;
+                const isProtected = u.is_founder || u.id === currentUser?.id;
                 return (
                   <Card key={u.id}>
                     <View style={styles.rowBetween}>
@@ -261,22 +295,44 @@ export default function AdminUsersScreen() {
                     </View>
 
                     <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                      <AdminBadge
-                        label={u.role ?? "user"}
-                        variant={u.role === SUPER_ADMIN_ROLE ? "warning" : "muted"}
-                      />
-                      {u.has_owner_access && (
-                        <AdminBadge label="owner_access" variant="warning" />
+                      {u.is_founder ? (
+                        <FounderBadges />
+                      ) : (
+                        <>
+                          <AdminBadge
+                            label={u.role ?? "user"}
+                            variant={u.role === SUPER_ADMIN_ROLE ? "warning" : "muted"}
+                          />
+                          {u.has_owner_access && (
+                            <AdminBadge label={OWNER_ACCESS_LABEL} variant="warning" />
+                          )}
+                        </>
                       )}
                       {u.id === currentUser?.id && <AdminBadge label="You" variant="info" />}
                     </View>
 
+                    {u.is_founder ? (
+                      <View
+                        style={{
+                          marginTop: 14,
+                          padding: 12,
+                          borderRadius: 10,
+                          backgroundColor: colors.bgSection,
+                          borderWidth: 1,
+                          borderColor: colors.gold,
+                        }}
+                      >
+                        <Text style={[styles.muted, { color: colors.gold, fontWeight: "700" }]}>
+                          {PROTECTED_ACCOUNT_MESSAGE}
+                        </Text>
+                      </View>
+                    ) : (
                     <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                       <Pressable
                         onPress={() =>
                           runAction(
                             u.id,
-                            () => grantPlanAccess(u.id, "premium"),
+                            () => grantPlanAccess(u.id, "premium", u.email),
                             `${u.email} granted Premium.`
                           )
                         }
@@ -294,7 +350,7 @@ export default function AdminUsersScreen() {
                         onPress={() =>
                           runAction(
                             u.id,
-                            () => grantPlanAccess(u.id, "landlord"),
+                            () => grantPlanAccess(u.id, "landlord", u.email),
                             `${u.email} granted Landlord.`
                           )
                         }
@@ -312,7 +368,7 @@ export default function AdminUsersScreen() {
                         onPress={() =>
                           runAction(
                             u.id,
-                            () => grantPlanAccess(u.id, "realtor"),
+                            () => grantPlanAccess(u.id, "realtor", u.email),
                             `${u.email} granted Realtor.`
                           )
                         }
@@ -348,7 +404,7 @@ export default function AdminUsersScreen() {
                         onPress={() =>
                           runAction(
                             u.id,
-                            () => grantUserRole(u.id, SUPER_ADMIN_ROLE),
+                            () => grantUserRole(u.id, SUPER_ADMIN_ROLE, u.email),
                             `${u.email} marked as Super Admin.`
                           )
                         }
@@ -362,13 +418,15 @@ export default function AdminUsersScreen() {
                           Super Admin
                         </Text>
                       </Pressable>
-                      <Pressable
-                        onPress={() => openEdit(u)}
-                        style={[styles.secondaryButton, { flex: 1, minWidth: "45%", marginTop: 0 }]}
-                      >
-                        <Text style={styles.secondaryButtonText}>Edit Plan</Text>
-                      </Pressable>
-                      {u.id !== currentUser?.id && (
+                      {!u.is_founder && (
+                        <Pressable
+                          onPress={() => openEdit(u)}
+                          style={[styles.secondaryButton, { flex: 1, minWidth: "45%", marginTop: 0 }]}
+                        >
+                          <Text style={styles.secondaryButtonText}>Edit Plan</Text>
+                        </Pressable>
+                      )}
+                      {!isProtected && (
                         <>
                           <Pressable
                             onPress={() => confirmRevoke(u)}
@@ -390,12 +448,13 @@ export default function AdminUsersScreen() {
                             ]}
                           >
                             <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>
-                              Delete
+                              Delete User
                             </Text>
                           </Pressable>
                         </>
                       )}
                     </View>
+                    )}
                   </Card>
                 );
               })

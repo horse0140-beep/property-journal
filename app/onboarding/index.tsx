@@ -58,7 +58,7 @@ export default function OnboardingScreen() {
       if (granted) {
         await updateProfile({ notificationsEnabled: true });
         if (user?.id) {
-          await registerPushToken(user.id).catch(() => {});
+          await registerPushToken().catch(() => {});
         }
       }
     }
@@ -117,7 +117,7 @@ export default function OnboardingScreen() {
               Welcome to HomeWise{user?.name ? `,\n${user.name.split(" ")[0]}` : ""}!
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 16, textAlign: "center", marginTop: 14, lineHeight: 24 }}>
-              You're about to create the most complete record of your home ever made.
+              You&apos;re about to create the most complete record of your home ever made.
             </Text>
             <View style={{ marginTop: 32, gap: 14, width: "100%" }}>
               {[

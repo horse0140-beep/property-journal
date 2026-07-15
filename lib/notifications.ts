@@ -1,18 +1,59 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Appliance, Document, MaintenanceItem } from "@/data/demoData";
 import { saveIncomingNotification } from "@/services/notificationService";
 import type { NotificationType } from "@/types/notifications";
+import { supportsLocalNotifications } from "@/lib/expoRuntime";
+import { normalizeDateForDatabase } from "@/lib/dateForDatabase";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (supportsLocalNotifications()) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+
+  // Android requires the channel referenced by app.json's defaultChannel to
+  // exist, or pushes fall back to a low-importance "Miscellaneous" channel.
+  if (Platform.OS === "android") {
+    void Notifications.setNotificationChannelAsync("maintenance", {
+      name: "Reminders",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+    }).catch(() => {});
+  }
+}
+
+/** SDK 54 trigger builders — legacy `{seconds}` / `{date}` shapes throw. */
+function dateTrigger(date: Date): Notifications.NotificationTriggerInput {
+  return { type: Notifications.SchedulableTriggerInputTypes.DATE, date };
+}
+
+function secondsTrigger(seconds: number): Notifications.NotificationTriggerInput {
+  return { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds };
+}
+
+/**
+ * Immediate "overdue"/"replace soon" pings fire at most once per day so
+ * reopening the app doesn't re-notify the user about the same item.
+ */
+async function shouldSendImmediatePing(kind: string): Promise<boolean> {
+  const key = `HOMEWISE_IMMEDIATE_PING_${kind}`;
+  const today = new Date().toDateString();
+  try {
+    const last = await AsyncStorage.getItem(key);
+    if (last === today) return false;
+    await AsyncStorage.setItem(key, today);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type NotificationSchedulePrefs = {
   maintenanceReminders?: boolean;
@@ -22,7 +63,7 @@ export type NotificationSchedulePrefs = {
 };
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (Platform.OS === "web") return false;
+  if (!supportsLocalNotifications()) return false;
   const { status: existing } = await Notifications.getPermissionsAsync();
   if (existing === "granted") return true;
   const { status } = await Notifications.requestPermissionsAsync();
@@ -30,12 +71,12 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 export async function cancelAllNotifications(): Promise<void> {
-  if (Platform.OS === "web") return;
+  if (!supportsLocalNotifications()) return;
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
 async function cancelNotificationsByType(type: NotificationType): Promise<void> {
-  if (Platform.OS === "web") return;
+  if (!supportsLocalNotifications()) return;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   for (const n of scheduled) {
     if ((n.content.data as { type?: string })?.type === type) {
@@ -65,13 +106,13 @@ export async function scheduleMaintenanceNotifications(
     const reminderTime = triggerDate.getTime() - 3 * 24 * 60 * 60 * 1000;
 
     if (reminderTime <= now) {
-      if (item.status === "Overdue") {
+      if (item.status === "Overdue" && (await shouldSendImmediatePing("maintenance"))) {
         await scheduleLocal({
           type: "maintenance",
           title: "Overdue Maintenance",
           body: `${item.title} is overdue. Tap to mark complete.`,
           sourceId: item.id,
-          trigger: { seconds: 5 },
+          trigger: secondsTrigger(5),
         });
       }
       continue;
@@ -82,7 +123,7 @@ export async function scheduleMaintenanceNotifications(
       title: "Maintenance Reminder",
       body: `${item.title} is due in 3 days.`,
       sourceId: item.id,
-      trigger: { date: new Date(reminderTime) },
+      trigger: dateTrigger(new Date(reminderTime)),
     });
   }
 }
@@ -112,7 +153,7 @@ export async function scheduleWarrantyNotifications(
         title: "Warranty Expiring Soon",
         body: `${doc.title} expires in 30 days. Tap to review.`,
         sourceId: doc.id,
-        trigger: { date: new Date(thirtyDayWarning) },
+        trigger: dateTrigger(new Date(thirtyDayWarning)),
       });
     }
 
@@ -123,7 +164,7 @@ export async function scheduleWarrantyNotifications(
         title: "Warranty Expiring in 7 Days",
         body: `${doc.title} expires soon. Renew now.`,
         sourceId: doc.id,
-        trigger: { date: new Date(sevenDayWarning) },
+        trigger: dateTrigger(new Date(sevenDayWarning)),
       });
     }
   }
@@ -152,7 +193,7 @@ export async function scheduleApplianceNotifications(
         title: "Appliance Replacement Reminder",
         body: `${appliance.name} may need replacement in 30 days.`,
         sourceId: appliance.id,
-        trigger: { date: new Date(thirtyDayWarning) },
+        trigger: dateTrigger(new Date(thirtyDayWarning)),
       });
     }
 
@@ -163,17 +204,21 @@ export async function scheduleApplianceNotifications(
         title: "Appliance Replacement Soon",
         body: `${appliance.name} is nearing end of life. Plan a replacement.`,
         sourceId: appliance.id,
-        trigger: { date: new Date(sevenDayWarning) },
+        trigger: dateTrigger(new Date(sevenDayWarning)),
       });
     }
 
-    if (appliance.condition === "Replace Soon" && replacementDate.getTime() <= now + 14 * 24 * 60 * 60 * 1000) {
+    if (
+      appliance.condition === "Replace Soon" &&
+      replacementDate.getTime() <= now + 14 * 24 * 60 * 60 * 1000 &&
+      (await shouldSendImmediatePing("appliance"))
+    ) {
       await scheduleLocal({
         type: "appliance",
         title: "Replace Appliance",
         body: `${appliance.name} is marked Replace Soon.`,
         sourceId: appliance.id,
-        trigger: { seconds: 10 },
+        trigger: secondsTrigger(10),
       });
     }
   }
@@ -200,7 +245,7 @@ export async function scheduleSubscriptionRenewalNotifications(
         type: "subscription",
         title: "Subscription Renewal Reminder",
         body: `Your ${planLabel} plan renews in 7 days.`,
-        trigger: { date: new Date(sevenDayWarning) },
+        trigger: dateTrigger(new Date(sevenDayWarning)),
       });
     }
 
@@ -210,7 +255,7 @@ export async function scheduleSubscriptionRenewalNotifications(
         type: "subscription",
         title: "Subscription Renews Tomorrow",
         body: `Your ${planLabel} subscription renews tomorrow.`,
-        trigger: { date: new Date(oneDayWarning) },
+        trigger: dateTrigger(new Date(oneDayWarning)),
       });
     }
     return;
@@ -223,7 +268,7 @@ export async function scheduleSubscriptionRenewalNotifications(
       type: "subscription",
       title: "Subscription Reminder",
       body: `Review your ${planLabel} subscription and billing details.`,
-      trigger: { date: fallback },
+      trigger: dateTrigger(fallback),
     });
   }
 }
@@ -278,7 +323,7 @@ export async function sendTestNotification(): Promise<boolean> {
       data: { type: "system", id: "test" },
       sound: true,
     },
-    trigger: { seconds: 2 } as Notifications.NotificationTriggerInput,
+    trigger: secondsTrigger(2),
   });
 
   await saveIncomingNotification({
@@ -309,7 +354,7 @@ async function scheduleLocal(input: {
   title: string;
   body: string;
   sourceId?: string;
-  trigger: { date: Date } | { seconds: number };
+  trigger: Notifications.NotificationTriggerInput;
 }): Promise<void> {
   const icon =
     input.type === "maintenance"
@@ -329,64 +374,66 @@ async function scheduleLocal(input: {
       data: { type: input.type, id: input.sourceId ?? "" },
       sound: true,
     },
-    trigger: input.trigger as Notifications.NotificationTriggerInput,
+    trigger: input.trigger,
   });
 }
 
+/**
+ * Parse a stored or display date ("2026-07-01", "July 2026", "Jul 15, 2026",
+ * "TBD"…) into a local Date, constructed numerically so it never depends on
+ * engine-specific Date.parse behavior (Hermes-safe).
+ */
 export function parseDueDate(dateStr: string): Date | null {
-  if (!dateStr || dateStr === "TBD" || dateStr === "Not yet") return null;
+  if (!dateStr) return null;
 
-  const d = new Date(dateStr);
-  if (!isNaN(d.getTime())) return d;
+  const result = normalizeDateForDatabase(dateStr);
+  if (!result.ok || !result.iso) return null;
 
-  const monthYear = dateStr.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (monthYear) {
-    const parsed = new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
-    if (!isNaN(parsed.getTime())) return parsed;
-  }
-
-  const full = dateStr.match(/^([A-Za-z]+)\s+(\d+),?\s+(\d{4})$/);
-  if (full) {
-    const parsed = new Date(`${full[1]} ${full[2]}, ${full[3]}`);
-    if (!isNaN(parsed.getTime())) return parsed;
-  }
-
-  return null;
+  const [year, month, day] = result.iso.split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
 export function setupNotificationListeners(
   onNavigate: (data: { type: string; id: string }) => void
 ) {
-  const handle = async (notification: Notifications.Notification) => {
-    const data = notification.request.content.data as {
-      type?: NotificationType;
-      id?: string;
+  if (!supportsLocalNotifications()) {
+    return () => {};
+  }
+
+  try {
+    const handle = async (notification: Notifications.Notification) => {
+      const data = notification.request.content.data as {
+        type?: NotificationType;
+        id?: string;
+      };
+      const content = notification.request.content;
+
+      if (content.title && content.body && data?.type) {
+        await saveIncomingNotification({
+          type: data.type,
+          title: String(content.title).replace(/^[^\w]+\s*/, ""),
+          body: String(content.body),
+          sourceId: data.id,
+          broadcastId: data.type === "broadcast" ? data.id : undefined,
+        }).catch(() => {});
+      }
+
+      if (data?.type && data?.id) {
+        onNavigate({ type: data.type, id: data.id });
+      }
     };
-    const content = notification.request.content;
 
-    if (content.title && content.body && data?.type) {
-      await saveIncomingNotification({
-        type: data.type,
-        title: String(content.title).replace(/^[^\w]+\s*/, ""),
-        body: String(content.body),
-        sourceId: data.id,
-        broadcastId: data.type === "broadcast" ? data.id : undefined,
-      }).catch(() => {});
-    }
+    const sub1 = Notifications.addNotificationReceivedListener(handle);
 
-    if (data?.type && data?.id) {
-      onNavigate({ type: data.type, id: data.id });
-    }
-  };
+    const sub2 = Notifications.addNotificationResponseReceivedListener((response) => {
+      handle(response.notification);
+    });
 
-  const sub1 = Notifications.addNotificationReceivedListener(handle);
-
-  const sub2 = Notifications.addNotificationResponseReceivedListener((response) => {
-    handle(response.notification);
-  });
-
-  return () => {
-    sub1.remove();
-    sub2.remove();
-  };
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
+  } catch {
+    return () => {};
+  }
 }

@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { isFounderAccount, PROTECTED_ACCOUNT_MESSAGE } from "@/lib/admin";
 
 const USER_DATA_TABLES = [
   "property_shares",
@@ -78,6 +79,10 @@ export async function deleteOwnAccount(): Promise<void> {
 
   if (!userId || !email) {
     throw new Error("You must be signed in to delete your account.");
+  }
+
+  if (isFounderAccount(email)) {
+    throw new Error(PROTECTED_ACCOUNT_MESSAGE);
   }
 
   await deleteUserData(userId, email);

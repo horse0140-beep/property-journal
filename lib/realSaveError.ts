@@ -65,7 +65,10 @@ export function isInsertOkSelectFailed(error: { code?: string; message?: string 
   return (
     code === "PGRST116" ||
     msg.includes("0 rows") ||
-    msg.includes("cannot coerce the result to a single json object")
+    msg.includes("no rows") ||
+    msg.includes("cannot coerce the result to a single json object") ||
+    msg.includes("json object requested") ||
+    msg.includes("multiple (or no) rows returned")
   );
 }
 

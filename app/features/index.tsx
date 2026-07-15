@@ -2,6 +2,7 @@ import { ScrollView, Text, View, Pressable } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
+import { BackLink } from "@/components/EmptyState";
 import { Card } from "@/components/Card";
 import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -102,13 +103,7 @@ export default function PremiumFeaturesHub() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <Pressable
-          onPress={() => router.back()}
-          style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 16 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontWeight: "700" }}>Back</Text>
-        </Pressable>
+        <BackLink onPress={() => router.back()} />
 
         <View
           style={{

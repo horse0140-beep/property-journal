@@ -1,9 +1,10 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "@/lib/supabase";
 import { loadAllUserData } from "@/services/dataService";
 import { uploadReportPdf } from "@/services/storageService";
+import { parseCostNumber } from "@/lib/dbSanitize";
 import type { PropertyScore } from "@/context/HomeWiseContext";
 import type {
   Appliance,
@@ -136,7 +137,7 @@ export async function fetchPropertyReportData(
   propertyId: string,
   ownerName: string
 ): Promise<HomeHistoryReportData | null> {
-  const data = await loadAllUserData(userId);
+  const data = await loadAllUserData();
   const property = data.properties.find((p) => p.id === propertyId);
   if (!property) return null;
 
@@ -215,10 +216,7 @@ export function buildHomeHistoryReportHtml(data: HomeHistoryReportData): string 
     ownerName,
   } = data;
 
-  const totalRepairCost = repairs.reduce(
-    (acc, r) => acc + parseFloat(r.cost.replace(/,/g, "") || "0"),
-    0
-  );
+  const totalRepairCost = repairs.reduce((acc, r) => acc + parseCostNumber(r.cost), 0);
 
   const reportDate = new Date().toLocaleDateString("en-US", {
     month: "long",
@@ -473,8 +471,8 @@ export function buildHomeHistoryReportHtml(data: HomeHistoryReportData): string 
 </html>`;
 }
 
-function escapeHtml(text: string): string {
-  return text
+function escapeHtml(text: string | null | undefined): string {
+  return String(text ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
