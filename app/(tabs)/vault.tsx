@@ -7,11 +7,16 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Image,
+  Share,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useLocalSearchParams, router } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { KeyboardModal } from "@/components/KeyboardModal";
+import { DocumentViewerModal } from "@/components/DocumentViewerModal";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { EmptyState } from "@/components/EmptyState";
@@ -20,18 +25,19 @@ import { ErrorCard } from "@/components/ErrorCard";
 import { colors, styles } from "@/constants/theme";
 import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
-import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
 import type { Document } from "@/context/HomeWiseContext";
 import { fileExists } from "@/lib/fileUtils";
+import { logDocumentCardTap, resolveDocumentUrl } from "@/lib/documentUtils";
+import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
+import { formatDateForDisplay, normalizeDateForDatabase } from "@/lib/dateForDatabase";
+import { matchesPropertyId, normalizeDocumentCategory } from "@/types/database";
+import { TabScreenHeader } from "@/components/TabScreenHeader";
 import {
-  bucketForDocumentCategory,
   isRemoteUri,
   pickCameraForUpload,
   pickDocumentForUpload,
   pickImageForUpload,
-  showUploadError,
-  uploadLocalFileIfNeeded,
   type UploadProgress,
 } from "@/services/storageService";
 
@@ -93,9 +99,10 @@ function progressLabel(progress: UploadProgress | null): string {
 }
 
 export default function VaultScreen() {
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const vaultTabs: Tab[] = ["all", "warranty", "insurance", "inspection", "receipt", "permit"];
   const { selectedProperty, documents, addDocument, deleteDocument, isLoading, loadError, refreshData } =
     useHomeWise();
-  const { user } = useAuth();
   const { canAccess, showUpgrade } = useUpgrade();
   const tabScrollStyle = useTabScrollContentStyle();
   const [tab, setTab] = useState<Tab>("all");
@@ -104,10 +111,18 @@ export default function VaultScreen() {
   const [tagInput, setTagInput] = useState("");
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [pickedFileName, setPickedFileName] = useState<string | null>(null);
+  const [viewDocument, setViewDocument] = useState<Document | null>(null);
 
   const pid = selectedProperty?.id ?? "";
+
+  useEffect(() => {
+    if (tabParam && vaultTabs.includes(tabParam as Tab)) {
+      setTab(tabParam as Tab);
+    }
+  }, [tabParam]);
 
   function setF(key: string, val: unknown) {
     setForm((f) => ({ ...f, [key]: val }));
@@ -134,7 +149,8 @@ export default function VaultScreen() {
         }
       }
     } catch (e) {
-      showUploadError(e, "File Selection Failed");
+      console.warn("FILE_PICK_ERROR", e);
+      showRealSaveError("vault", "pick file", e);
     } finally {
       setPicking(false);
       setUploadProgress(null);
@@ -153,23 +169,66 @@ export default function VaultScreen() {
     await attachPicked(() => pickCameraForUpload(onUploadProgress));
   }
 
-  async function handleShare(doc: Document) {
-    if (!doc.fileUri) {
+  function openDocument(doc: Document) {
+    logDocumentCardTap(doc);
+    setViewDocument(doc);
+  }
+
+  async function handleOpen(doc: Document) {
+    const url = resolveDocumentUrl(doc);
+    if (!url) {
       Alert.alert("No File", "No file is attached to this document.");
       return;
     }
 
-    if (isRemoteUri(doc.fileUri)) {
-      await Linking.openURL(doc.fileUri);
+    if (isRemoteUri(url)) {
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (!supported) {
+          Alert.alert("Cannot Open", "This file cannot be opened on this device.");
+          return;
+        }
+        await Linking.openURL(url);
+      } catch (e) {
+        Alert.alert("Open Failed", e instanceof Error ? e.message : "Could not open file.");
+      }
       return;
     }
 
-    const exists = await fileExists(doc.fileUri);
+    const exists = await fileExists(url);
     if (!exists) {
       Alert.alert("File Not Found", "The file could not be found on this device.");
       return;
     }
-    await Sharing.shareAsync(doc.fileUri, { dialogTitle: `Share ${doc.title}` });
+    await Linking.openURL(url);
+  }
+
+  async function handleShare(doc: Document) {
+    const url = resolveDocumentUrl(doc);
+    if (!url) {
+      Alert.alert("No File", "No file is attached to this document.");
+      return;
+    }
+
+    if (isRemoteUri(url)) {
+      try {
+        await Share.share({
+          message: url,
+          url: Platform.OS === "ios" ? url : undefined,
+          title: doc.title,
+        });
+      } catch {
+        // user dismissed share sheet
+      }
+      return;
+    }
+
+    const exists = await fileExists(url);
+    if (!exists) {
+      Alert.alert("File Not Found", "The file could not be found on this device.");
+      return;
+    }
+    await Sharing.shareAsync(url, { dialogTitle: `Share ${doc.title}` });
   }
 
   function addTag() {
@@ -183,13 +242,21 @@ export default function VaultScreen() {
   }
 
   async function save() {
+    if (savingRef.current || saving) return;
+
     if (!form.title.trim()) {
       Alert.alert("Required", "Please enter a document title.");
       return;
     }
 
-    if (!user?.id) {
-      Alert.alert("Sign In Required", "Please sign in to save documents to the cloud.");
+    if (!form.fileUri?.trim()) {
+      Alert.alert("File Required", "Please choose a file first.");
+      return;
+    }
+
+    const expiresCheck = normalizeDateForDatabase(form.expiresDate);
+    if (!expiresCheck.ok) {
+      Alert.alert("Invalid Expiration Date", expiresCheck.error);
       return;
     }
 
@@ -199,40 +266,37 @@ export default function VaultScreen() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setUploadProgress({ phase: "uploading", percent: 10 });
 
     try {
-      let fileUri = form.fileUri;
-
-      if (fileUri && !isRemoteUri(fileUri)) {
-        const bucket = bucketForDocumentCategory(form.category);
-        fileUri = await uploadLocalFileIfNeeded(
-          user.id,
-          bucket,
-          fileUri,
-          pickedFileName ?? undefined,
-          onUploadProgress
-        );
-      }
-
-      addDocument({ ...form, propertyId: pid, fileUri });
+      const saved = await addDocument({ ...form, propertyId: pid });
+      logSaveSuccessEvent("vault", "save document", saved);
+      await refreshData().catch((e) => console.warn("REFRESH_AFTER_SAVE_FAILED", e));
       setForm({ ...EMPTY_FORM });
       setTagInput("");
       setPickedFileName(null);
       setShowAdd(false);
     } catch (e) {
-      showUploadError(e);
+      showRealSaveError("vault", "save document", e);
     } finally {
+      savingRef.current = false;
       setSaving(false);
       setUploadProgress(null);
     }
   }
 
-  const propDocs = documents.filter((d) => d.propertyId === pid);
-  const filtered = tab === "all" ? propDocs : propDocs.filter((d) => d.category === tab);
-  const expiringSoon = propDocs.filter((d) => d.expiresDate && d.category === "warranty");
+  const propDocs = documents.filter((d) => matchesPropertyId(d.propertyId, pid));
+  const filtered =
+    tab === "all"
+      ? propDocs
+      : propDocs.filter((d) => normalizeDocumentCategory(d.category) === tab);
+  const expiringSoon = propDocs.filter(
+    (d) => d.expiresDate && normalizeDocumentCategory(d.category) === "warranty"
+  );
   const busy = picking || saving;
+  const canSaveDoc = Boolean(form.title.trim() && form.fileUri?.trim());
 
   if (isLoading) {
     return (
@@ -256,40 +320,22 @@ export default function VaultScreen() {
 
   return (
     <Screen noPad tabScreen>
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 12,
-          backgroundColor: colors.bgCard,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        }}
-      >
+      <TabScreenHeader>
         <View style={styles.rowBetween}>
           <View>
-            <Text style={styles.screenTitle}>Document Vault</Text>
-            <Text style={styles.screenSubtitle}>{propDocs.length} documents stored</Text>
+            <Text style={styles.tabHeaderTitle}>Document Vault</Text>
+            <Text style={styles.tabHeaderSubtitle}>
+              {propDocs.length} {propDocs.length === 1 ? "document" : "documents"} for this property
+            </Text>
           </View>
-          <Pressable
-            onPress={() => {
-              setForm({ ...EMPTY_FORM, propertyId: pid });
-              setPickedFileName(null);
-              setShowAdd(true);
-            }}
-            style={{
-              backgroundColor: colors.primary,
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              borderRadius: 12,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>Add Doc</Text>
-          </Pressable>
+          {selectedProperty ? (
+            <Pressable
+              onPress={() => router.push(`/properties/${pid}?section=documents`)}
+              style={[styles.secondaryButton, { marginTop: 0, paddingVertical: 9, paddingHorizontal: 12 }]}
+            >
+              <Text style={styles.secondaryButtonText}>Manage</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <ScrollView
@@ -331,7 +377,7 @@ export default function VaultScreen() {
             </Pressable>
           ))}
         </ScrollView>
-      </View>
+      </TabScreenHeader>
 
       <ScrollView contentContainerStyle={tabScrollStyle}>
         {loadError ? <ErrorCard message={loadError} onRetry={refreshData} /> : null}
@@ -367,77 +413,81 @@ export default function VaultScreen() {
           <EmptyState
             icon="folder-open-outline"
             title={tab === "all" ? "Vault is empty" : `No ${tab} documents`}
-            message="Upload PDFs, images, and documents to keep everything organized."
+            message="Add documents from your property record."
+            actionLabel="Open Property Record"
+            onAction={() => selectedProperty && router.push(`/properties/${pid}?section=documents`)}
           />
         ) : (
           filtered.map((doc) => {
             const ci = categoryIcon(doc.category);
             return (
               <Card key={doc.id}>
-                <View style={styles.rowBetween}>
-                  <View style={[styles.rowStart, { flex: 1 }]}>
-                    <View
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 10,
-                        backgroundColor: ci.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Ionicons name={ci.icon as keyof typeof Ionicons.glyphMap} size={22} color={ci.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
-                        {doc.title}
-                      </Text>
-                      <Text style={styles.muted}>
-                        {doc.uploadDate} • {doc.fileType.toUpperCase()} • {doc.fileSize}
-                      </Text>
-                      {doc.expiresDate && (
-                        <Text style={{ color: colors.warning, fontSize: 12, fontWeight: "600", marginTop: 2 }}>
-                          Expires: {doc.expiresDate}
-                        </Text>
-                      )}
-                      {doc.fileUri && isRemoteUri(doc.fileUri) && (
-                        <Text style={{ color: colors.success, fontSize: 11, fontWeight: "600", marginTop: 2 }}>
-                          Cloud synced
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                  <View style={{ backgroundColor: ci.bg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 }}>
-                    <Text style={{ color: ci.color, fontSize: 11, fontWeight: "700" }}>
-                      {doc.category.charAt(0).toUpperCase() + doc.category.slice(1)}
-                    </Text>
-                  </View>
-                </View>
-
-                {doc.notes ? <Text style={[styles.muted, { marginTop: 8 }]}>{doc.notes}</Text> : null}
-
-                {(doc.tags ?? []).length > 0 && (
-                  <View style={[styles.chipRow, { marginTop: 8 }]}>
-                    {(doc.tags ?? []).map((tag: string) => (
+                <Pressable onPress={() => openDocument(doc)} accessibilityRole="button">
+                  <View style={styles.rowBetween}>
+                    <View style={[styles.rowStart, { flex: 1 }]}>
                       <View
-                        key={tag}
                         style={{
-                          backgroundColor: colors.bgSection,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 999,
+                          width: 44,
+                          height: 44,
+                          borderRadius: 10,
+                          backgroundColor: ci.bg,
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
                       >
-                        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600" }}>#{tag}</Text>
+                        <Ionicons name={ci.icon as keyof typeof Ionicons.glyphMap} size={22} color={ci.color} />
                       </View>
-                    ))}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {doc.title}
+                        </Text>
+                        <Text style={styles.muted}>
+                          {formatDateForDisplay(doc.uploadDate)} • {doc.fileType.toUpperCase()} • {doc.fileSize}
+                        </Text>
+                        {doc.expiresDate && (
+                          <Text style={{ color: colors.warning, fontSize: 12, fontWeight: "600", marginTop: 2 }}>
+                            Expires: {formatDateForDisplay(doc.expiresDate)}
+                          </Text>
+                        )}
+                        {doc.fileUri && isRemoteUri(doc.fileUri) && (
+                          <Text style={{ color: colors.success, fontSize: 11, fontWeight: "600", marginTop: 2 }}>
+                            Cloud synced
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={{ backgroundColor: ci.bg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 }}>
+                      <Text style={{ color: ci.color, fontSize: 11, fontWeight: "700" }}>
+                        {doc.category.charAt(0).toUpperCase() + doc.category.slice(1)}
+                      </Text>
+                    </View>
                   </View>
-                )}
+
+                  {doc.notes ? <Text style={[styles.muted, { marginTop: 8 }]}>{doc.notes}</Text> : null}
+
+                  {(doc.tags ?? []).length > 0 && (
+                    <View style={[styles.chipRow, { marginTop: 8 }]}>
+                      {(doc.tags ?? []).map((tag: string) => (
+                        <View
+                          key={tag}
+                          style={{
+                            backgroundColor: colors.bgSection,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                          }}
+                        >
+                          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600" }}>#{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </Pressable>
 
                 <View style={[styles.divider, { marginTop: 10 }]} />
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <Pressable
-                    onPress={() => handleShare(doc)}
+                    onPress={() => handleOpen(doc)}
                     style={{
                       flex: 1,
                       flexDirection: "row",
@@ -493,7 +543,6 @@ export default function VaultScreen() {
       </ScrollView>
 
       <KeyboardModal visible={showAdd} onRequestClose={() => !busy && setShowAdd(false)}>
-            <View style={styles.modalHandle} />
             <View style={styles.rowBetween}>
               <Text style={styles.modalTitle}>Add Document</Text>
               <Pressable onPress={() => !busy && setShowAdd(false)}>
@@ -651,9 +700,19 @@ export default function VaultScreen() {
                 </>
               ) : pickedFileName ? (
                 <>
-                  <Ionicons name="checkmark-circle" size={28} color={colors.success} />
+                  {form.fileType === "image" && form.fileUri ? (
+                    <Image
+                      source={{ uri: form.fileUri }}
+                      style={{ width: "100%", height: 140, borderRadius: 10, marginBottom: 8 }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons name="checkmark-circle" size={28} color={colors.success} />
+                  )}
                   <Text style={{ color: colors.success, fontWeight: "700", fontSize: 13 }}>{pickedFileName}</Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>Tap buttons above to change file</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                    {form.fileSize} · Tap buttons above to change file
+                  </Text>
                 </>
               ) : (
                 <>
@@ -667,9 +726,9 @@ export default function VaultScreen() {
             </Pressable>
 
             <Pressable
-              style={[styles.primaryButton, busy && { opacity: 0.7 }]}
+              style={[styles.primaryButton, (busy || !canSaveDoc) && { opacity: 0.7 }]}
               onPress={save}
-              disabled={busy}
+              disabled={busy || !canSaveDoc}
             >
               {saving ? (
                 <>
@@ -687,6 +746,13 @@ export default function VaultScreen() {
             </Pressable>
             <View style={{ height: 20 }} />
       </KeyboardModal>
+
+      <DocumentViewerModal
+        visible={viewDocument !== null}
+        document={viewDocument}
+        onClose={() => setViewDocument(null)}
+        onDelete={deleteDocument}
+      />
     </Screen>
   );
 }

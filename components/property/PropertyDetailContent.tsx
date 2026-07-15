@@ -28,6 +28,9 @@ import type { MaintenanceItem, Property } from "@/context/HomeWiseContext";
 import type { Contractor, Document } from "@/data/demoData";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
 import { showMaintenanceSaveError, showRepairSaveError } from "@/lib/maintenanceRepairSave";
+import { normalizeDateForDatabase } from "@/lib/dateForDatabase";
+import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
+import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 import { matchesPropertyId } from "@/types/database";
 import { useUpgrade } from "@/context/UpgradeContext";
 import {
@@ -154,6 +157,7 @@ export default function PropertyDetailContent({
     deleteMaintenanceItem,
     completeMaintenanceItem,
     addRepair,
+    updateRepair,
     deleteRepair,
     addAppliance,
     updateAppliance,
@@ -420,7 +424,12 @@ export default function PropertyDetailContent({
           Alert.alert("Required", "Enter a task name.");
           return;
         }
-        const status = computeMaintenanceStatus(mNextDue || "TBD");
+        const nextDueCheck = normalizeDateForDatabase(mNextDue);
+        if (!nextDueCheck.ok) {
+          Alert.alert("Invalid Date", nextDueCheck.error);
+          return;
+        }
+        const status = computeMaintenanceStatus(nextDueCheck.iso ?? "TBD");
         if (editingId) {
           await updateMaintenanceItem(editingId, {
             title: mTitle,
@@ -448,6 +457,16 @@ export default function PropertyDetailContent({
       } else if (activeModal === "repair") {
         if (!rTitle.trim()) {
           Alert.alert("Required", "Enter a repair name.");
+          return;
+        }
+        const repairDateCheck = normalizeDateForDatabase(rDate);
+        if (!repairDateCheck.ok) {
+          Alert.alert("Invalid Date", repairDateCheck.error);
+          return;
+        }
+        const warrantyCheck = normalizeDateForDatabase(rWarranty);
+        if (!warrantyCheck.ok) {
+          Alert.alert("Invalid Warranty Date", warrantyCheck.error);
           return;
         }
         saved = await addRepair({
@@ -661,6 +680,19 @@ export default function PropertyDetailContent({
     }
   }
 
+  async function handleDeleteRepairPhoto(repairId: string, storedUrl: string) {
+    const repair = propRepairs.find((rp) => rp.id === repairId);
+    if (!repair) return;
+    const remaining = (repair.photoUris ?? []).filter((u) => u !== storedUrl);
+    try {
+      await updateRepair(repairId, { photoUris: remaining });
+      await deleteRepairPhotoObject(storedUrl);
+      console.log("[REPAIR PHOTO DB ROW]", { repairId, action: "photo removed", remaining: remaining.length });
+    } catch (e) {
+      showRepairSaveError("delete repair photo", e);
+    }
+  }
+
   async function attachRepairPhoto(fromCamera: boolean) {
     setPicking(true);
     try {
@@ -845,6 +877,10 @@ export default function PropertyDetailContent({
             <Card key={r.id} style={{ marginBottom: 10 }}>
               <Text style={styles.cardTitle}>{r.title}</Text>
               <Text style={styles.muted}>{r.date} · ${r.cost} · {r.contractor}</Text>
+              <RepairPhotoStrip
+                urls={r.photoUris ?? []}
+                onDeletePhoto={(storedUrl) => handleDeleteRepairPhoto(r.id, storedUrl)}
+              />
               <Pressable
                 onPress={() =>
                   Alert.alert("Delete", `Remove "${r.title}"?`, [
@@ -1068,7 +1104,7 @@ export default function PropertyDetailContent({
               ))}
             </ScrollView>
             <Text style={styles.label}>Next Due Date</Text>
-            <TextInput style={styles.input} placeholder="Jun 2026" placeholderTextColor={colors.textMuted} value={mNextDue} onChangeText={setMNextDue} />
+            <TextInput style={styles.input} placeholder="e.g. June 2026 or 06/15/2026" placeholderTextColor={colors.textMuted} value={mNextDue} onChangeText={setMNextDue} />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={mNotes} onChangeText={setMNotes} multiline />
           </>
@@ -1087,7 +1123,7 @@ export default function PropertyDetailContent({
               ))}
             </ScrollView>
             <Text style={styles.label}>Date</Text>
-            <TextInput style={styles.input} placeholder="May 2024" placeholderTextColor={colors.textMuted} value={rDate} onChangeText={setRDate} />
+            <TextInput style={styles.input} placeholder="e.g. May 2024 or 05/10/2024" placeholderTextColor={colors.textMuted} value={rDate} onChangeText={setRDate} />
             <Text style={styles.label}>Cost ($)</Text>
             <TextInput style={styles.input} placeholder="1,200" placeholderTextColor={colors.textMuted} value={rCost} onChangeText={setRCost} keyboardType="numeric" />
             <Text style={styles.label}>Photos</Text>

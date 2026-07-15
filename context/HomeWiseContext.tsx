@@ -21,12 +21,22 @@ import * as vaultService from "@/services/vaultService";
 import * as photoService from "@/services/photoService";
 import * as scoreService from "@/services/scoreService";
 import {
+  uploadLocalFile,
   uploadLocalFileIfNeeded,
   bucketForDocumentCategory,
   bucketForRepairAsset,
+  deleteFromStorage,
+  deleteStorageObject,
   isRemoteUri,
+  verifyStorageBucketExists,
 } from "@/services/storageService";
+import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { getPhotoBucket, photoKindFromCategory } from "@/services/storageBuckets";
+import {
+  formatDateForDisplay,
+  isoDateFromTimestamp,
+  todayIsoDate,
+} from "@/lib/dateForDatabase";
 
 export type {
   Property,
@@ -80,7 +90,7 @@ type AppContextValue = AppState & {
   selectProperty: (id: string) => void;
   addProperty: (p: Omit<Property, "id" | "isSelected">) => Promise<Property>;
   updateProperty: (id: string, p: Partial<Property>) => Promise<Property | null | undefined>;
-  deleteProperty: (id: string) => void;
+  deleteProperty: (id: string) => Promise<void>;
   addMaintenanceItem: (item: Omit<MaintenanceItem, "id">) => Promise<MaintenanceItem>;
   updateMaintenanceItem: (id: string, item: Partial<MaintenanceItem>) => Promise<void>;
   deleteMaintenanceItem: (id: string) => void;
@@ -403,16 +413,36 @@ export function HomeWiseProvider({
         }
       },
 
-      deleteProperty: (id) => {
+      deleteProperty: async (id) => {
+        // Server-first: only update local state after Supabase confirms the
+        // delete, so a failed delete can never silently "reappear" on refresh.
+        if (isSignedIn) {
+          await propertyService.deletePropertyDeep(id);
+        }
         setState((s) => {
           const remaining = s.properties.filter((pr) => pr.id !== id);
           return {
             ...s,
             properties: remaining,
-            selectedPropertyId: s.selectedPropertyId === id ? (remaining[0]?.id ?? "") : s.selectedPropertyId,
+            maintenanceItems: s.maintenanceItems.filter((m) => m.propertyId !== id),
+            repairs: s.repairs.filter((r) => r.propertyId !== id),
+            appliances: s.appliances.filter((a) => a.propertyId !== id),
+            documents: s.documents.filter((d) => d.propertyId !== id),
+            paintColors: s.paintColors.filter((p) => p.propertyId !== id),
+            photos: s.photos.filter((p) => p.propertyId !== id),
+            contractors: s.contractors.map((c) =>
+              c.propertyId === id ? { ...c, propertyId: undefined } : c
+            ),
+            selectedPropertyId:
+              s.selectedPropertyId === id ? (remaining[0]?.id ?? "") : s.selectedPropertyId,
           };
         });
-        if (isSignedIn) propertyService.deleteProperty(id).catch((e) => syncError("Delete property", e));
+        setScoreMap((m) => {
+          if (!(id in m)) return m;
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
       },
 
       addMaintenanceItem: async (item) => {
@@ -472,13 +502,10 @@ export function HomeWiseProvider({
       completeMaintenanceItem: async (id) => {
         const item = state.maintenanceItems.find((m) => m.id === id);
         const previous = item ? { ...item } : null;
-        const lastCompleted = new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        const lastCompleted = formatDateForDisplay(todayIsoDate());
         const nextDue =
           item?.recurring && item.intervalDays
-            ? new Date(Date.now() + item.intervalDays * 86400000).toLocaleDateString("en-US", {
-                month: "short",
-                year: "numeric",
-              })
+            ? formatDateForDisplay(isoDateFromTimestamp(Date.now() + item.intervalDays * 86400000))
             : item?.nextDue ?? "TBD";
         const updates: Partial<MaintenanceItem> = {
           status: item?.recurring ? "Upcoming" : "Completed",
@@ -521,12 +548,27 @@ export function HomeWiseProvider({
           }
           if (r.photoUris?.length) {
             const repairBucket = getPhotoBucket("repair");
+            console.log("[REPAIR PHOTO UPLOAD] start", {
+              bucket: repairBucket,
+              count: r.photoUris.length,
+              localUris: r.photoUris,
+            });
             const uploaded = await Promise.all(
               r.photoUris.map((uri) => uploadLocalFileIfNeeded(userId, repairBucket, uri))
             );
-            item = { ...item, photoUris: uploaded.filter((u): u is string => Boolean(u)) };
+            const photoUris = uploaded.filter((u): u is string => Boolean(u));
+            console.log("[REPAIR PHOTO UPLOAD] complete", { uploadedUrls: photoUris });
+            if (photoUris.length !== r.photoUris.length) {
+              throw new Error("One or more repair photos failed to upload. Please try again.");
+            }
+            item = { ...item, photoUris };
           }
           const created = await repairService.createRepair(userId, item);
+          console.log("[REPAIR PHOTO DB ROW]", {
+            repairId: created.id,
+            photoUris: created.photoUris,
+            receiptUri: created.receiptUri,
+          });
           setState((s) => ({
             ...s,
             repairs: s.repairs.map((rp) => (rp.id === newItem.id ? created : rp)),
@@ -562,12 +604,22 @@ export function HomeWiseProvider({
       },
 
       deleteRepair: (id) => {
-        const pid = state.repairs.find((r) => r.id === id)?.propertyId;
+        const repair = state.repairs.find((r) => r.id === id);
+        const pid = repair?.propertyId;
         setState((s) => ({ ...s, repairs: s.repairs.filter((r) => r.id !== id) }));
         if (pid) bumpScore(pid);
         if (isSignedIn) {
           void requireAuthUserId()
-            .then((userId) => repairService.deleteRepair(userId, id))
+            .then(async (userId) => {
+              await repairService.deleteRepair(userId, id);
+              // Best-effort storage cleanup after the DB record is gone.
+              for (const url of repair?.photoUris ?? []) {
+                await deleteRepairPhotoObject(url);
+              }
+              if (repair?.receiptUri) {
+                await deleteFromStorage(bucketForRepairAsset("receipt"), repair.receiptUri);
+              }
+            })
             .catch((e) => syncError("Delete repair", e));
         }
       },
@@ -631,8 +683,17 @@ export function HomeWiseProvider({
       },
 
       addDocument: async (d) => {
+        // STEP 1 — validate picker result / form input
         const title = (d.title ?? "").trim();
         const propertyId = (d.propertyId ?? "").trim();
+        console.log("[DOCUMENT STEP 1] input", {
+          title,
+          propertyId,
+          category: d.category,
+          fileUri: d.fileUri,
+          fileType: d.fileType,
+          fileSize: d.fileSize,
+        });
         if (!title) throw new Error("Document title is required.");
         if (!propertyId) throw new Error("Property is required.");
         if (!d.fileUri?.trim()) throw new Error("Please choose a file before saving.");
@@ -642,23 +703,92 @@ export function HomeWiseProvider({
         setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
         bumpScore(propertyId);
         if (!isSignedIn) return newDoc;
+
+        let uploadedBucket: ReturnType<typeof bucketForDocumentCategory> | null = null;
+        let uploadedPath: string | null = null;
+
         try {
           const userId = await requireAuthUserId();
           let doc = newDoc;
+
           if (!isRemoteUri(d.fileUri)) {
+            // STEP 2 — local URI
+            console.log("[DOCUMENT STEP 2] local URI", d.fileUri);
+
+            // STEP 3 — bucket selection
             const bucket = bucketForDocumentCategory(d.category);
-            const url = await uploadLocalFileIfNeeded(
-              userId,
-              bucket,
-              d.fileUri,
-              title || undefined
-            );
-            if (!url?.trim()) {
-              throw new Error("File upload failed. Please try again.");
+            console.log("[DOCUMENT STEP 3] bucket", { category: d.category, bucket });
+
+            // STEP 4 — bucket exists and is reachable for this user
+            const bucketCheck = await verifyStorageBucketExists(bucket);
+            console.log("[DOCUMENT STEP 4] bucket check", bucketCheck);
+            if (!bucketCheck.ok) {
+              throw new Error(
+                `Storage bucket "${bucket}" is not reachable: ${bucketCheck.error ?? "unknown error"}`
+              );
             }
-            doc = { ...doc, fileUri: url };
+
+            // STEP 5 — upload
+            const uploaded = await uploadLocalFile(userId, bucket, d.fileUri, title || undefined);
+            console.log("[DOCUMENT STEP 5] upload response", uploaded.uploadResponse);
+
+            // STEP 6 — storage path
+            console.log("[DOCUMENT STEP 6] storage path", uploaded.path);
+            uploadedBucket = uploaded.bucket;
+            uploadedPath = uploaded.path;
+
+            // STEP 7 — public/signed URL
+            console.log("[DOCUMENT STEP 7] url", {
+              urlMethod: uploaded.urlMethod,
+              isPublic: uploaded.isPublic,
+              url: uploaded.url,
+            });
+            if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
+              throw new Error("File upload did not return a usable URL. Please try again.");
+            }
+            doc = { ...doc, fileUri: uploaded.url };
           }
-          const created = await vaultService.createVaultDocument(userId, doc);
+
+          // STEP 8 — DB insert payload (built in vaultService/documentToRow)
+          console.log("[DOCUMENT STEP 8] inserting row", {
+            id: doc.id,
+            title: doc.title,
+            category: doc.category,
+            fileUri: doc.fileUri,
+          });
+
+          let created: Document;
+          try {
+            created = await vaultService.createVaultDocument(userId, doc);
+          } catch (insertError) {
+            // DB insert failed — remove the freshly uploaded storage object.
+            if (uploadedBucket && uploadedPath) {
+              console.warn("[DOCUMENT STEP 8] insert failed — rolling back storage object");
+              await deleteStorageObject(uploadedBucket, uploadedPath);
+            }
+            throw insertError;
+          }
+
+          // STEP 9 — returned row
+          console.log("[DOCUMENT STEP 9] returned row", {
+            id: created.id,
+            title: created.title,
+            fileUri: created.fileUri,
+          });
+
+          // STEP 10 — verify the row references the uploaded file
+          if (!created.fileUri?.trim() || !isRemoteUri(created.fileUri)) {
+            console.warn("[DOCUMENT STEP 10] row has no valid file URL — rolling back row + storage");
+            await vaultService
+              .deleteVaultDocument(userId, created)
+              .catch((e) => console.warn("[DOCUMENT STEP 10] row rollback failed:", e));
+            if (uploadedBucket && uploadedPath) {
+              await deleteStorageObject(uploadedBucket, uploadedPath);
+            }
+            throw new Error("Document row was saved without a file URL and has been rolled back.");
+          }
+          console.log("[DOCUMENT STEP 10] verified — updating app state");
+
           setState((s) => ({
             ...s,
             documents: s.documents.map((docItem) => (docItem.id === newDoc.id ? created : docItem)),

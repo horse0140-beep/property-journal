@@ -12,10 +12,8 @@ import {
   logRepairSaveFailed,
   logRepairSaveStart,
 } from "@/lib/maintenanceRepairSave";
-import {
-  setTextDateFieldOmit,
-  setTextField,
-} from "@/lib/dbSanitize";
+import { setTextField } from "@/lib/dbSanitize";
+import { setIsoDateFieldOmit } from "@/lib/dateForDatabase";
 import type { Repair } from "@/data/demoData";
 import { repairToRow, rowToRepair } from "@/types/database";
 
@@ -85,14 +83,15 @@ export async function updateRepair(userId: string, id: string, updates: Partial<
     const row: Record<string, unknown> = {};
 
     if (updates.title !== undefined) row.title = updates.title;
-    if (updates.date !== undefined) setTextDateFieldOmit(row, "date", updates.date);
+    if (updates.date !== undefined) setIsoDateFieldOmit(row, "date", updates.date, "Repair date");
     if (updates.cost !== undefined) setTextField(row, "cost", updates.cost);
     if (updates.contractor !== undefined) setTextField(row, "contractor", updates.contractor);
     if (updates.category !== undefined) setTextField(row, "category", updates.category);
     if (updates.notes !== undefined) setTextField(row, "notes", updates.notes);
-    if (updates.photoUris !== undefined && updates.photoUris.length > 0) row.photo_urls = updates.photoUris;
+    // Empty array must persist so removing the last photo sticks.
+    if (updates.photoUris !== undefined) row.photo_urls = updates.photoUris;
     if (updates.receiptUri !== undefined) setTextField(row, "receipt_url", updates.receiptUri);
-    if (updates.warrantyExpires !== undefined) setTextDateFieldOmit(row, "warranty_expires", updates.warrantyExpires);
+    if (updates.warrantyExpires !== undefined) setIsoDateFieldOmit(row, "warranty_expires", updates.warrantyExpires, "Warranty expires");
 
     if (Object.keys(row).length === 0) return;
 

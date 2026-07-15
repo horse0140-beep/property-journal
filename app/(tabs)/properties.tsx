@@ -13,16 +13,20 @@ import {
   type TextInput as TextInputType,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useRef, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
-import { ScoreRing } from "@/components/ScoreRing";
+import { EmptyState } from "@/components/EmptyState";
+import { LoadingView } from "@/components/LoadingView";
 import { colors, styles } from "@/constants/theme";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import type { Property } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUpgrade } from "@/context/UpgradeContext";
 import { canAddProperty } from "@/lib/premium";
+import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
+import { TabScreenHeader } from "@/components/TabScreenHeader";
 import { useTabScrollContentStyle } from "@/constants/layout";
 
 type TypeOption = Property["type"];
@@ -40,7 +44,15 @@ const EMPTY_FORM = {
   purchasePrice: "", estimatedValue: "", purchaseDate: "",
 };
 
+const TYPE_BADGE: Record<Property["type"], string> = {
+  primary: "PRIMARY",
+  rental: "RENTAL",
+  vacation: "VACATION",
+  investment: "INVEST",
+};
+
 export default function PropertiesScreen() {
+  const { edit: editParam } = useLocalSearchParams<{ edit?: string }>();
   const {
     properties,
     selectedPropertyId,
@@ -53,11 +65,15 @@ export default function PropertiesScreen() {
     loadError,
     refreshData,
   } = useHomeWise();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isSignedIn } = useAuth();
   const { showUpgrade } = useUpgrade();
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const savingRef = useRef(false);
+  const deletingRef = useRef(false);
   const tabScrollStyle = useTabScrollContentStyle();
 
   const formScrollRef = useRef<ScrollView>(null);
@@ -127,13 +143,48 @@ export default function PropertiesScreen() {
     setShowAdd(true);
   }
 
-  function closeModal() {
+  const openedEditRef = useRef<string | null>(null);
+  const propertiesRef = useRef(properties);
+  propertiesRef.current = properties;
+
+  useEffect(() => {
+    if (!editParam || showAdd || isLoading) return;
+    if (openedEditRef.current === editParam) return;
+    const target = propertiesRef.current.find((p) => p.id === editParam);
+    if (!target) return;
+    openedEditRef.current = editParam;
+    openEditProperty(target);
+  }, [editParam, showAdd, isLoading]);
+
+  function handleCloseModal() {
+    if (isSaving || isDeleting) return;
+    openedEditRef.current = editParam ?? "closed";
     setShowAdd(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
+    if (editParam) {
+      router.replace("/(tabs)/properties");
+    }
   }
 
-  function save() {
+  function dismissAfterSave() {
+    openedEditRef.current = editParam ?? "saved";
+    setShowAdd(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    if (editParam) {
+      router.replace("/(tabs)/properties");
+    }
+  }
+
+  async function save() {
+    if (savingRef.current || isSaving) return;
+
+    if (!isSignedIn) {
+      Alert.alert("Session expired", "Please sign in again.");
+      return;
+    }
+
     if (!form.address.trim()) {
       Alert.alert("Required", "Please enter the property address.");
       return;
@@ -142,19 +193,58 @@ export default function PropertiesScreen() {
       showUpgrade("unlimited_properties");
       return;
     }
-    if (editingId) {
-      updateProperty(editingId, { ...form });
-    } else {
-      addProperty({ ...form });
+
+    const saveId = editingId;
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      if (saveId) {
+        await updateProperty(saveId, { ...form });
+        logSaveSuccessEvent("properties", "update property", { id: saveId, ...form });
+      } else {
+        const created = await addProperty({ ...form });
+        logSaveSuccessEvent("properties", "add property", created);
+      }
+
+      await refreshData();
+      dismissAfterSave();
+    } catch (error) {
+      showRealSaveError("properties", saveId ? "update property" : "add property", error);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-    closeModal();
   }
 
-  function confirmDelete(id: string, address: string) {
-    Alert.alert("Remove Property", `Remove "${address}" from HomeWise?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => deleteProperty(id) },
-    ]);
+  function confirmDeleteProperty() {
+    if (!editingId || deletingRef.current || isSaving) return;
+    const target = properties.find((p) => p.id === editingId);
+    Alert.alert(
+      "Delete Property",
+      `Delete "${target?.nickname || target?.address || "this property"}" and all of its maintenance, repairs, appliances, documents, and photos? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void handleDeleteProperty() },
+      ]
+    );
+  }
+
+  async function handleDeleteProperty() {
+    if (!editingId || deletingRef.current) return;
+    const deleteId = editingId;
+    deletingRef.current = true;
+    setIsDeleting(true);
+    try {
+      await deleteProperty(deleteId);
+      logSaveSuccessEvent("properties", "delete property", { id: deleteId });
+      dismissAfterSave();
+    } catch (error) {
+      showRealSaveError("properties", "delete property", error);
+    } finally {
+      deletingRef.current = false;
+      setIsDeleting(false);
+    }
   }
 
   function scoreColor(v: number) {
@@ -166,16 +256,34 @@ export default function PropertiesScreen() {
 
   return (
     <Screen noPad tabScreen>
-      {/* Header */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, backgroundColor: colors.bgCard, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <Text style={styles.screenTitle}>My Properties</Text>
-        <Text style={styles.screenSubtitle}>{properties.length} {properties.length === 1 ? "property" : "properties"} tracked</Text>
-      </View>
+      <TabScreenHeader style={{ paddingBottom: 8 }}>
+        <View style={styles.rowBetween}>
+          <View>
+            <Text style={styles.tabHeaderTitle}>My Properties</Text>
+            <Text style={styles.tabHeaderSubtitle}>
+              {properties.length} {properties.length === 1 ? "property" : "properties"} tracked
+            </Text>
+          </View>
+          <Pressable
+            onPress={openAddProperty}
+            style={{
+              backgroundColor: colors.primary,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>Add Property</Text>
+          </Pressable>
+        </View>
+      </TabScreenHeader>
 
       {isLoading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <LoadingView message="Loading properties…" />
       ) : (
       <ScrollView contentContainerStyle={tabScrollStyle}>
         <View style={{ height: 16 }} />
@@ -190,10 +298,13 @@ export default function PropertiesScreen() {
         ) : null}
 
         {properties.length === 0 && !loadError ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateTitle}>No properties yet</Text>
-            <Text style={styles.emptyStateText}>Add your first home to start tracking its history.</Text>
-          </View>
+          <EmptyState
+            icon="business-outline"
+            title="No properties yet"
+            message="Add your first home to start tracking its history, maintenance, and health score."
+            actionLabel="Add Property"
+            onAction={openAddProperty}
+          />
         ) : null}
 
         {properties.map((p) => {
@@ -202,32 +313,33 @@ export default function PropertiesScreen() {
           return (
             <Pressable
               key={p.id}
-              onPress={() => selectProperty(p.id)}
+              onPress={() => {
+                selectProperty(p.id);
+                router.push(`/properties/${p.id}`);
+              }}
               style={({ pressed }) => [
                 styles.card,
                 isSelected && { borderColor: colors.primary, borderWidth: 2 },
                 pressed && { opacity: 0.9 },
               ]}
             >
-              {/* Row top */}
               <View style={styles.rowBetween}>
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                     {isSelected && (
-                      <View style={{ backgroundColor: colors.primary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 }}>
-                        <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>ACTIVE</Text>
+                      <View style={{ backgroundColor: colors.primary, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 }}>
+                        <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" }}>ACTIVE</Text>
                       </View>
                     )}
-                    <View style={{ backgroundColor: colors.bgSection, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 }}>
-                      <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>
-                        {p.type.toUpperCase()}
+                    <View style={{ backgroundColor: colors.bgSection, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 }}>
+                      <Text style={{ color: colors.textMuted, fontSize: 9, fontWeight: "700" }}>
+                        {TYPE_BADGE[p.type] ?? p.type.toUpperCase()}
                       </Text>
                     </View>
                   </View>
                   <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: "800" }}>{p.address}</Text>
                   <Text style={{ color: colors.textMuted, fontSize: 13 }}>{p.city}, {p.state} {p.zip}</Text>
                 </View>
-                {/* Score mini */}
                 <View style={{
                   width: 64, height: 64, borderRadius: 32,
                   borderWidth: 5, borderColor: scoreColor(score.overall),
@@ -240,7 +352,6 @@ export default function PropertiesScreen() {
 
               <View style={styles.divider} />
 
-              {/* Details row */}
               <View style={{ flexDirection: "row", gap: 16 }}>
                 {[
                   { label: "Built", value: p.yearBuilt },
@@ -255,48 +366,18 @@ export default function PropertiesScreen() {
                 ))}
               </View>
 
-              {/* Actions */}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-                <Pressable
-                  onPress={() => openEditProperty(p)}
-                  style={[styles.secondaryButton, { flex: 1, marginTop: 0, paddingVertical: 12, flexDirection: "row", gap: 6, justifyContent: "center" }]}
-                >
-                  <Ionicons name="create-outline" size={16} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 14 }}>Edit</Text>
-                </Pressable>
-                {!isSelected && (
-                  <Pressable
-                    onPress={() => selectProperty(p.id)}
-                    style={[styles.primaryButton, { flex: 1, marginTop: 0 }]}
-                  >
-                    <Text style={styles.primaryButtonText}>Set Active</Text>
-                  </Pressable>
-                )}
-                <Pressable
-                  onPress={() => confirmDelete(p.id, p.address)}
-                  style={[styles.secondaryButton, { flex: isSelected ? 1 : undefined, marginTop: 0, paddingVertical: 12 }]}
-                >
-                  <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                  {isSelected && <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 14 }}>Remove</Text>}
-                </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 }}>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Open property record</Text>
               </View>
             </Pressable>
           );
         })}
 
-        {/* Add property CTA */}
-        <Pressable
-          onPress={openAddProperty}
-          style={[styles.primaryButton, { flexDirection: "row", gap: 8 }]}
-        >
-          <Ionicons name="add-circle-outline" size={20} color="#fff" />
-          <Text style={styles.primaryButtonText}>Add Property</Text>
-        </Pressable>
       </ScrollView>
       )}
 
-      {/* ── Add Property Modal ──────────────────────────────────── */}
-      <Modal visible={showAdd} animationType="slide" transparent onRequestClose={closeModal}>
+      <Modal visible={showAdd} animationType="slide" transparent onRequestClose={handleCloseModal}>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -306,7 +387,7 @@ export default function PropertiesScreen() {
             <View style={styles.modalHandle} />
             <View style={[styles.rowBetween, { paddingTop: 4 }]}>
               <Text style={styles.modalTitle}>{editingId ? "Edit Property" : "Add Property"}</Text>
-              <Pressable onPress={closeModal}>
+              <Pressable onPress={handleCloseModal} disabled={isSaving || isDeleting}>
                 <Ionicons name="close" size={24} color={colors.textMuted} />
               </Pressable>
             </View>
@@ -551,12 +632,33 @@ export default function PropertiesScreen() {
               </View>
 
               <View {...fieldWrapProps("actions")}>
-                <Pressable style={styles.primaryButton} onPress={save}>
-                  <Text style={styles.primaryButtonText}>{editingId ? "Save Changes" : "Save Property"}</Text>
+                <Pressable
+                  style={[styles.primaryButton, isSaving && { opacity: 0.6 }]}
+                  onPress={save}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>{editingId ? "Save Changes" : "Save Property"}</Text>
+                  )}
                 </Pressable>
-                <Pressable style={styles.ghostButton} onPress={closeModal}>
+                <Pressable style={styles.ghostButton} onPress={handleCloseModal} disabled={isSaving || isDeleting}>
                   <Text style={styles.ghostButtonText}>Cancel</Text>
                 </Pressable>
+                {editingId ? (
+                  <Pressable
+                    style={[styles.ghostButton, (isSaving || isDeleting) && { opacity: 0.6 }]}
+                    onPress={confirmDeleteProperty}
+                    disabled={isSaving || isDeleting}
+                  >
+                    {isDeleting ? (
+                      <ActivityIndicator color={colors.danger} />
+                    ) : (
+                      <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete Property</Text>
+                    )}
+                  </Pressable>
+                ) : null}
               </View>
             </ScrollView>
           </View>

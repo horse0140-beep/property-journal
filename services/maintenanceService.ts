@@ -14,9 +14,9 @@ import {
 } from "@/lib/maintenanceRepairSave";
 import {
   setNumericFieldOmit,
-  setTextDateFieldOmit,
   setTextField,
 } from "@/lib/dbSanitize";
+import { setIsoDateFieldOmit } from "@/lib/dateForDatabase";
 import type { MaintenanceItem } from "@/data/demoData";
 import { maintenanceToRow, rowToMaintenance } from "@/types/database";
 
@@ -90,8 +90,8 @@ export async function updateMaintenanceItem(userId: string, id: string, updates:
 
     if (updates.title !== undefined) row.title = updates.title;
     if (updates.category !== undefined) setTextField(row, "category", updates.category);
-    if (updates.lastCompleted !== undefined) setTextDateFieldOmit(row, "last_completed", updates.lastCompleted);
-    if (updates.nextDue !== undefined) setTextDateFieldOmit(row, "next_due", updates.nextDue);
+    if (updates.lastCompleted !== undefined) setIsoDateFieldOmit(row, "last_completed", updates.lastCompleted, "Last completed");
+    if (updates.nextDue !== undefined) setIsoDateFieldOmit(row, "next_due", updates.nextDue, "Next due");
     if (updates.status !== undefined) row.status = updates.status;
     if (updates.notes !== undefined) setTextField(row, "notes", updates.notes);
     if (updates.intervalDays !== undefined) setNumericFieldOmit(row, "interval_days", updates.intervalDays);

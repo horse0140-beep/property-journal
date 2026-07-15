@@ -1,124 +1,215 @@
 import { supabase } from "@/lib/supabase";
 import {
-  isMissingSchemaError,
-  omitMissingOptionalColumn,
-  PROPERTY_OPTIONAL_COLUMNS,
-  stripKnownMissingColumns,
-} from "@/lib/dbErrors";
-import {
-  setDateFieldNullable,
-  setNumericFieldNullable,
-  setTextField,
-} from "@/lib/dbSanitize";
+  ensureAuthProfileRow,
+  getAuthenticatedUser,
+  logAuthUserIdAudit,
+} from "@/lib/authUser";
+import { assertNoError } from "@/lib/userErrors";
+import { isInsertOkSelectFailed } from "@/lib/realSaveError";
+import { fetchInsertedRow, runSaveWithRetry } from "@/lib/saveReliability";
 import type { Property } from "@/data/demoData";
-import { propertyToRow, rowToProperty } from "@/types/database";
+import { propertyPartialToRow, propertyToRow, rowToProperty } from "@/types/database";
 
-async function insertPropertyRow(userId: string, property: Property) {
-  let current = stripKnownMissingColumns(
-    propertyToRow(userId, property),
-    PROPERTY_OPTIONAL_COLUMNS
-  );
+/** Sole data-access layer for properties (no separate PropertyRepository). */
 
-  for (;;) {
-    const { data, error } = await supabase.from("properties").insert(current).select().single();
-    if (!error) return rowToProperty(data);
-    const next = omitMissingOptionalColumn(current, error.message, PROPERTY_OPTIONAL_COLUMNS);
-    if (!next) throw new Error(error.message);
-    current = next;
-  }
+function throwIfPropertyError(error: { message: string; code?: string; details?: string; hint?: string } | null) {
+  if (!error) return;
+  console.warn("PROPERTY_INSERT_ERROR_FULL", JSON.stringify(error, null, 2));
+  throw new Error(error.message);
 }
 
-async function updatePropertyRow(
-  userId: string,
-  id: string,
-  row: Record<string, unknown>
-) {
-  let current = stripKnownMissingColumns(row, PROPERTY_OPTIONAL_COLUMNS);
+export async function fetchProperties(): Promise<Property[]> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
 
-  for (;;) {
-    const { error } = await supabase
-      .from("properties")
-      .update(current)
-      .eq("id", id)
-      .eq("user_id", userId);
-
-    if (!error) return;
-    const next = omitMissingOptionalColumn(current, error.message, PROPERTY_OPTIONAL_COLUMNS);
-    if (!next) throw new Error(error.message);
-    current = next;
+  if (authError || !user) {
+    throw new Error("No authenticated user");
   }
-}
 
-export async function fetchProperties(userId: string): Promise<Property[]> {
   const { data, error } = await supabase
     .from("properties")
     .select("*")
-    .eq("user_id", userId)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (error) throw new Error(error.message);
+  assertNoError("property_load", error, "property_load");
   return (data ?? []).map((r) => rowToProperty(r));
 }
 
-export async function createProperty(userId: string, property: Property): Promise<Property> {
-  return insertPropertyRow(userId, property);
+export async function createProperty(property: Property): Promise<Property> {
+  return runSaveWithRetry("properties", "insert", { id: property.id }, async () => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error("No authenticated user");
+    }
+
+    await ensureAuthProfileRow(user);
+
+    const row = propertyToRow(property);
+    delete row.user_id;
+
+    const payload = {
+      ...row,
+      user_id: user.id,
+    };
+
+    logAuthUserIdAudit("createProperty", user.id, String(payload.user_id));
+
+    const { data, error } = await supabase
+      .from("properties")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      if (isInsertOkSelectFailed(error)) {
+        const fetched = await fetchInsertedRow("properties", property.id, user.id);
+        if (fetched) return rowToProperty(fetched);
+      }
+      throwIfPropertyError(error);
+    }
+
+    return rowToProperty(data!);
+  });
 }
 
-export async function updateProperty(userId: string, id: string, updates: Partial<Property>) {
-  const row: Record<string, unknown> = {};
+export async function updateProperty(
+  id: string,
+  updates: Partial<Property>
+): Promise<Property | null> {
+  return runSaveWithRetry("properties", "update", { id, updates }, async () => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-  if (updates.nickname !== undefined) setTextField(row, "nickname", updates.nickname);
-  if (updates.address !== undefined) row.address = updates.address;
-  if (updates.city !== undefined) setTextField(row, "city", updates.city);
-  if (updates.state !== undefined) setTextField(row, "state", updates.state);
-  if (updates.zip !== undefined) setTextField(row, "zip", updates.zip);
-  if (updates.type !== undefined) row.type = updates.type;
-  if (updates.yearBuilt !== undefined) setTextField(row, "year_built", updates.yearBuilt);
-  if (updates.squareFeet !== undefined) setNumericFieldNullable(row, "square_feet", updates.squareFeet);
-  if (updates.bedrooms !== undefined) setNumericFieldNullable(row, "bedrooms", updates.bedrooms);
-  if (updates.bathrooms !== undefined) setNumericFieldNullable(row, "bathrooms", updates.bathrooms);
-  if (updates.purchasePrice !== undefined) setNumericFieldNullable(row, "purchase_price", updates.purchasePrice);
-  if (updates.estimatedValue !== undefined) {
-    setNumericFieldNullable(row, "estimated_value", updates.estimatedValue);
-    setNumericFieldNullable(row, "value", updates.estimatedValue);
+    if (authError || !user) {
+      throw new Error("No authenticated user");
+    }
+
+    const row = propertyPartialToRow(updates);
+    if (Object.keys(row).length === 0) return null;
+
+    const { data, error } = await supabase
+      .from("properties")
+      .update(row)
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      if (isInsertOkSelectFailed(error)) {
+        const fetched = await fetchInsertedRow("properties", id, user.id);
+        if (fetched) return rowToProperty(fetched);
+      }
+      throwIfPropertyError(error);
+    }
+
+    return rowToProperty(data!);
+  });
+}
+
+export async function deleteProperty(id: string) {
+  const user = await getAuthenticatedUser();
+  const { error } = await supabase.from("properties").delete().eq("id", id).eq("user_id", user.id);
+  throwIfPropertyError(error);
+}
+
+/**
+ * Child tables that reference properties(property_id).
+ * Deleted child-first so the property delete cannot be blocked by a
+ * foreign key that is missing ON DELETE CASCADE in the live database.
+ */
+const PROPERTY_CHILD_TABLES = [
+  "maintenance_forecasts",
+  "property_shares",
+  "reports",
+  "property_scores",
+  "photos",
+  "documents",
+  "receipts",
+  "warranties",
+  "maintenance_items",
+  "repairs",
+  "appliances",
+  "paint_colors",
+] as const;
+
+/** Ordered, RLS-scoped deletion of a property and all owned child records. */
+export async function deletePropertyDeep(id: string): Promise<void> {
+  const user = await getAuthenticatedUser();
+  console.log("[PROPERTY DELETE] start", { propertyId: id });
+
+  // contractors keep their row — FK is ON DELETE SET NULL by design.
+  const { error: contractorError } = await supabase
+    .from("contractors")
+    .update({ property_id: null })
+    .eq("property_id", id)
+    .eq("user_id", user.id);
+  if (contractorError) {
+    console.warn("[PROPERTY DELETE] contractor detach failed:", contractorError.message);
   }
-  if (updates.purchaseDate !== undefined) setDateFieldNullable(row, "purchase_date", updates.purchaseDate);
-  if (updates.photoUri !== undefined && updates.photoUri) row.photo_url = updates.photoUri;
-  if (updates.isSelected !== undefined) row.is_selected = updates.isSelected;
 
-  if (Object.keys(row).length === 0) return;
+  const childErrors: string[] = [];
+  for (const table of PROPERTY_CHILD_TABLES) {
+    const { error } = await supabase.from(table).delete().eq("property_id", id);
+    if (error) {
+      // Missing table/column in the live schema is fine — nothing to clean up.
+      const benign = error.code === "42P01" || error.code === "42703";
+      console.warn(`[PROPERTY DELETE] ${table}:`, error.code, error.message);
+      if (!benign) childErrors.push(`${table}: ${error.message}`);
+    } else {
+      console.log(`[PROPERTY DELETE] cleared ${table}`);
+    }
+  }
 
-  await updatePropertyRow(userId, id, row);
+  const { error, count } = await supabase
+    .from("properties")
+    .delete({ count: "exact" })
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.warn("PROPERTY_DELETE_ERROR_FULL", JSON.stringify(error, null, 2));
+    const suffix = childErrors.length > 0 ? ` (child record cleanup also failed: ${childErrors.join("; ")})` : "";
+    throw new Error(`${error.message}${suffix}`);
+  }
+
+  if (!count) {
+    throw new Error(
+      "Property delete removed no rows. The row may not exist or the RLS DELETE policy on properties blocked it."
+    );
+  }
+
+  console.log("[PROPERTY DELETE] complete", { propertyId: id, deleted: count });
 }
 
-export async function deleteProperty(userId: string, id: string) {
-  const { error } = await supabase.from("properties").delete().eq("id", id).eq("user_id", userId);
-  if (error) throw new Error(error.message);
-}
-
-/** Best-effort — no-op when is_selected column is not deployed yet. */
-export async function clearPropertySelection(userId: string) {
+export async function clearPropertySelection() {
+  const user = await getAuthenticatedUser();
   const { error } = await supabase
     .from("properties")
     .update({ is_selected: false })
-    .eq("user_id", userId);
+    .eq("user_id", user.id);
 
-  if (error && !isMissingSchemaError(error.message)) {
-    throw new Error(error.message);
-  }
+  if (error) console.warn("PROPERTY_INSERT_ERROR_FULL", JSON.stringify(error, null, 2));
 }
 
-/** Best-effort — selection still works client-side if column is missing. */
-export async function setSelectedProperty(userId: string, id: string) {
-  await clearPropertySelection(userId);
+export async function setSelectedProperty(id: string) {
+  await clearPropertySelection();
+  const user = await getAuthenticatedUser();
 
   const { error } = await supabase
     .from("properties")
     .update({ is_selected: true })
     .eq("id", id)
-    .eq("user_id", userId);
+    .eq("user_id", user.id);
 
-  if (error && !isMissingSchemaError(error.message)) {
-    throw new Error(error.message);
-  }
+  if (error) console.warn("PROPERTY_INSERT_ERROR_FULL", JSON.stringify(error, null, 2));
 }

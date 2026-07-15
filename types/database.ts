@@ -14,11 +14,16 @@ import {
   setDateFieldNullable,
   setNumericFieldNullable,
   setNumericFieldOmit,
-  setTextDateFieldOmit,
   setTextField,
   toDisplayString,
   toNumericOrNull,
 } from "@/lib/dbSanitize";
+import {
+  formatDateForDisplay,
+  setIsoDateFieldOmit,
+  todayIsoDate,
+  dateForDatabaseOrThrow,
+} from "@/lib/dateForDatabase";
 
 function parsePhotoUri(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -66,13 +71,13 @@ export function matchesPropertyId(
   return a.toLowerCase() === b.toLowerCase();
 }
 
-function formatUploadDate(value?: string): string {
-  if (value?.trim()) return value.trim();
-  return new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+/** upload_date is a date column in the live DB — always send ISO YYYY-MM-DD. */
+function normalizeUploadDate(value?: string): string {
+  if (value?.trim()) {
+    const iso = dateForDatabaseOrThrow(value, "Upload date");
+    if (iso) return iso;
+  }
+  return todayIsoDate();
 }
 
 function setIfPresent(row: Record<string, unknown>, column: string, value: unknown) {
@@ -192,8 +197,8 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
     propertyId: row.property_id as string,
     title: row.title as string,
     category: toDisplayString(row.category),
-    lastCompleted: toDisplayString(row.last_completed),
-    nextDue: toDisplayString(row.next_due),
+    lastCompleted: formatDateForDisplay(row.last_completed),
+    nextDue: formatDateForDisplay(row.next_due),
     status: (row.status as MaintenanceItem["status"]) ?? "Upcoming",
     notes: toDisplayString(row.notes),
     recurring: Boolean(row.recurring),
@@ -218,8 +223,8 @@ export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<str
   };
 
   setTextField(row, "category", m.category || "General");
-  setTextDateFieldOmit(row, "last_completed", m.lastCompleted);
-  setTextDateFieldOmit(row, "next_due", m.nextDue);
+  setIsoDateFieldOmit(row, "last_completed", m.lastCompleted, "Last completed");
+  setIsoDateFieldOmit(row, "next_due", m.nextDue, "Next due");
   setTextField(row, "notes", m.notes);
   setNumericFieldOmit(row, "interval_days", m.intervalDays);
 
@@ -233,14 +238,14 @@ export function rowToRepair(row: Record<string, unknown>): Repair {
     id: row.id as string,
     propertyId: row.property_id as string,
     title: row.title as string,
-    date: toDisplayString(row.date),
+    date: formatDateForDisplay(row.date),
     cost: toDisplayString(row.cost),
     contractor: toDisplayString(row.contractor),
     category: toDisplayString(row.category),
     notes: toDisplayString(row.notes),
     photoUris: (row.photo_urls as string[]) ?? [],
     receiptUri: parsePhotoUri(row.receipt_url),
-    warrantyExpires: toDisplayString(row.warranty_expires) || undefined,
+    warrantyExpires: formatDateForDisplay(row.warranty_expires) || undefined,
   };
 }
 
@@ -260,9 +265,9 @@ export function repairToRow(userId: string, r: Repair): Record<string, unknown> 
   setTextField(row, "contractor", r.contractor);
   setTextField(row, "category", r.category || "General");
   setTextField(row, "notes", r.notes);
-  setTextDateFieldOmit(row, "date", r.date);
+  setIsoDateFieldOmit(row, "date", r.date, "Repair date");
   setTextField(row, "cost", r.cost);
-  setTextDateFieldOmit(row, "warranty_expires", r.warrantyExpires);
+  setIsoDateFieldOmit(row, "warranty_expires", r.warrantyExpires, "Warranty expires");
 
   if (r.photoUris?.length) {
     row.photo_urls = r.photoUris;
@@ -354,7 +359,7 @@ export function documentToRow(
     title: doc.title.trim(),
     file_url: doc.fileUri?.trim() || "",
     file_type: doc.fileType || "pdf",
-    upload_date: formatUploadDate(doc.uploadDate),
+    upload_date: normalizeUploadDate(doc.uploadDate),
     notes: doc.notes ?? "",
   };
 
@@ -364,7 +369,7 @@ export function documentToRow(
   }
 
   setTextField(row, "file_size", doc.fileSize);
-  setDateFieldNullable(row, "expires_date", doc.expiresDate);
+  setIsoDateFieldOmit(row, "expires_date", doc.expiresDate, "Expiration date");
 
   if (table === "documents") {
     row.category = normalizeDocumentCategory(doc.category);
