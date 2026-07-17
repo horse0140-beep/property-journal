@@ -5,7 +5,6 @@ import { isInsertOkSelectFailed } from "@/lib/realSaveError";
 import { fetchInsertedRow, runSaveWithRetry } from "@/lib/saveReliability";
 import { isRemoteUri } from "@/services/storageService";
 import {
-  setDateFieldNullable,
   setTextField,
   toNumericOrNull,
 } from "@/lib/dbSanitize";

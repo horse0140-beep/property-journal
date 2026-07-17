@@ -30,7 +30,8 @@ import type { Document } from "@/context/HomeWiseContext";
 import { fileExists } from "@/lib/fileUtils";
 import { logDocumentCardTap, resolveDocumentUrl } from "@/lib/documentUtils";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
-import { formatDateForDisplay, normalizeDateForDatabase } from "@/lib/dateForDatabase";
+import { formatDateForDisplay } from "@/lib/dateForDatabase";
+import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 import { matchesPropertyId, normalizeDocumentCategory } from "@/types/database";
 import { TabScreenHeader } from "@/components/TabScreenHeader";
 import {
@@ -254,9 +255,9 @@ export default function VaultScreen() {
       return;
     }
 
-    const expiresCheck = normalizeDateForDatabase(form.expiresDate);
-    if (!expiresCheck.ok) {
-      Alert.alert("Invalid Expiration Date", expiresCheck.error);
+    const expiresIso = toIsoDateValue(form.expiresDate);
+    if ((form.expiresDate ?? "").trim() && !expiresIso) {
+      Alert.alert("Invalid Expiration Date", "Choose a valid expiration date from the calendar.");
       return;
     }
 
@@ -271,7 +272,11 @@ export default function VaultScreen() {
     setUploadProgress({ phase: "uploading", percent: 10 });
 
     try {
-      const saved = await addDocument({ ...form, propertyId: pid });
+      const saved = await addDocument({
+        ...form,
+        propertyId: pid,
+        expiresDate: expiresIso ?? "",
+      });
       logSaveSuccessEvent("vault", "save document", saved);
       await refreshData().catch((e) => console.warn("REFRESH_AFTER_SAVE_FAILED", e));
       setForm({ ...EMPTY_FORM });
@@ -574,13 +579,12 @@ export default function VaultScreen() {
               ))}
             </View>
 
-            <Text style={styles.label}>Expiration Date (optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Jun 2031"
-              placeholderTextColor={colors.textMuted}
-              value={form.expiresDate}
-              onChangeText={(v) => setF("expiresDate", v)}
+            <DatePickerField
+              label="Expiration Date"
+              value={form.expiresDate ?? ""}
+              onChange={(iso) => setF("expiresDate", iso)}
+              optional
+              placeholder="Tap to choose expiration date"
             />
 
             <Text style={styles.label}>File Type</Text>

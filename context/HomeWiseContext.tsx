@@ -33,10 +33,10 @@ import {
 import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { getPhotoBucket, photoKindFromCategory } from "@/services/storageBuckets";
 import {
-  formatDateForDisplay,
   isoDateFromTimestamp,
   todayIsoDate,
 } from "@/lib/dateForDatabase";
+import { assertOnlineForWrite } from "@/lib/connectivity";
 
 export type {
   Property,
@@ -380,6 +380,7 @@ export function HomeWiseProvider({
         }));
 
         if (!isSignedIn) return newProp;
+        await assertOnlineForWrite();
 
         try {
           const created = await propertyService.createProperty(newProp);
@@ -410,6 +411,7 @@ export function HomeWiseProvider({
       updateProperty: async (id, p) => {
         const previous = state.properties.find((pr) => pr.id === id);
         if (!isSignedIn) return previous ?? null;
+        await assertOnlineForWrite();
 
         try {
           const saved = await propertyService.updateProperty(id, p);
@@ -435,6 +437,7 @@ export function HomeWiseProvider({
         // Server-first: only update local state after Supabase confirms the
         // delete, so a failed delete can never silently "reappear" on refresh.
         if (isSignedIn) {
+          await assertOnlineForWrite();
           await propertyService.deletePropertyDeep(id);
         }
         setState((s) => {
@@ -468,6 +471,7 @@ export function HomeWiseProvider({
         setState((s) => ({ ...s, maintenanceItems: [newItem, ...s.maintenanceItems] }));
         bumpScore(item.propertyId);
         if (!isSignedIn) return newItem;
+        await assertOnlineForWrite();
         try {
           const userId = await requireAuthUserId();
           const created = await maintenanceService.createMaintenanceItem(userId, newItem);
@@ -494,6 +498,7 @@ export function HomeWiseProvider({
         const pid = item.propertyId ?? previous?.propertyId;
         if (pid) bumpScore(pid);
         if (!isSignedIn) return;
+        await assertOnlineForWrite();
         try {
           const userId = await requireAuthUserId();
           await maintenanceService.updateMaintenanceItem(userId, id, item);
@@ -522,11 +527,11 @@ export function HomeWiseProvider({
       completeMaintenanceItem: async (id) => {
         const item = state.maintenanceItems.find((m) => m.id === id);
         const previous = item ? { ...item } : null;
-        const lastCompleted = formatDateForDisplay(todayIsoDate());
+        const lastCompleted = todayIsoDate();
         const nextDue =
           item?.recurring && item.intervalDays
-            ? formatDateForDisplay(isoDateFromTimestamp(Date.now() + item.intervalDays * 86400000))
-            : item?.nextDue ?? "TBD";
+            ? isoDateFromTimestamp(Date.now() + item.intervalDays * 86400000)
+            : item?.nextDue ?? "";
         const updates: Partial<MaintenanceItem> = {
           status: item?.recurring ? "Upcoming" : "Completed",
           lastCompleted,
@@ -558,6 +563,7 @@ export function HomeWiseProvider({
         setState((s) => ({ ...s, repairs: [newItem, ...s.repairs] }));
         bumpScore(r.propertyId);
         if (!isSignedIn) return newItem;
+        await assertOnlineForWrite();
         try {
           const userId = await requireAuthUserId();
           let item = newItem;
@@ -608,6 +614,7 @@ export function HomeWiseProvider({
         const pid = previous?.propertyId;
         if (pid) bumpScore(pid);
         if (!isSignedIn) return;
+        await assertOnlineForWrite();
         try {
           const userId = await requireAuthUserId();
           await repairService.updateRepair(userId, id, r);
@@ -723,6 +730,7 @@ export function HomeWiseProvider({
         setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
         bumpScore(propertyId);
         if (!isSignedIn) return newDoc;
+        await assertOnlineForWrite();
 
         let uploadedBucket: ReturnType<typeof bucketForDocumentCategory> | null = null;
         let uploadedPath: string | null = null;
@@ -948,6 +956,7 @@ export function HomeWiseProvider({
 
         setState((s) => ({ ...s, photos: [newItem, ...s.photos] }));
         try {
+          await assertOnlineForWrite();
           await photoService.savePhoto({
             id: newItem.id,
             propertyId: newItem.propertyId,

@@ -28,6 +28,7 @@ import { canAddProperty } from "@/lib/premium";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
 import { TabScreenHeader } from "@/components/TabScreenHeader";
 import { useTabScrollContentStyle } from "@/constants/layout";
+import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 
 type TypeOption = Property["type"];
 const TYPE_OPTIONS: { value: TypeOption; label: string; icon: string }[] = [
@@ -89,7 +90,6 @@ export default function PropertiesScreen() {
   const bathroomsRef = useRef<TextInputType>(null);
   const purchasePriceRef = useRef<TextInputType>(null);
   const estimatedValueRef = useRef<TextInputType>(null);
-  const purchaseDateRef = useRef<TextInputType>(null);
 
   const scrollFieldIntoView = useCallback((key: string) => {
     requestAnimationFrame(() => {
@@ -138,7 +138,7 @@ export default function PropertiesScreen() {
       bathrooms: p.bathrooms ?? "",
       purchasePrice: p.purchasePrice ?? "",
       estimatedValue: p.estimatedValue ?? "",
-      purchaseDate: p.purchaseDate ?? "",
+      purchaseDate: toIsoDateValue(p.purchaseDate) ?? "",
     });
     setShowAdd(true);
   }
@@ -189,6 +189,11 @@ export default function PropertiesScreen() {
       Alert.alert("Required", "Please enter the property address.");
       return;
     }
+    const purchaseDateIso = toIsoDateValue(form.purchaseDate);
+    if (form.purchaseDate.trim() && !purchaseDateIso) {
+      Alert.alert("Invalid Date", "Choose a valid purchase date from the calendar.");
+      return;
+    }
     if (!editingId && !canAddProperty(properties.length, user?.plan, isAdmin, user?.email)) {
       showUpgrade("unlimited_properties");
       return;
@@ -198,12 +203,14 @@ export default function PropertiesScreen() {
     savingRef.current = true;
     setIsSaving(true);
 
+    const payload = { ...form, purchaseDate: purchaseDateIso ?? "" };
+
     try {
       if (saveId) {
-        await updateProperty(saveId, { ...form });
-        logSaveSuccessEvent("properties", "update property", { id: saveId, ...form });
+        await updateProperty(saveId, payload);
+        logSaveSuccessEvent("properties", "update property", { id: saveId, ...payload });
       } else {
-        const created = await addProperty({ ...form });
+        const created = await addProperty(payload);
         logSaveSuccessEvent("properties", "add property", created);
       }
 
@@ -239,6 +246,7 @@ export default function PropertiesScreen() {
       await deleteProperty(deleteId);
       logSaveSuccessEvent("properties", "delete property", { id: deleteId });
       dismissAfterSave();
+      router.replace("/(tabs)/properties");
     } catch (error) {
       showRealSaveError("properties", "delete property", error);
     } finally {
@@ -608,9 +616,7 @@ export default function PropertiesScreen() {
                       value={form.estimatedValue}
                       onChangeText={(v) => set("estimatedValue", v)}
                       keyboardType="numeric"
-                      returnKeyType="next"
-                      blurOnSubmit={false}
-                      onSubmitEditing={() => purchaseDateRef.current?.focus()}
+                      returnKeyType="done"
                       onFocus={() => scrollFieldIntoView("valueRow")}
                     />
                   </View>
@@ -618,16 +624,12 @@ export default function PropertiesScreen() {
               </View>
 
               <View {...fieldWrapProps("purchaseDate")}>
-                <Text style={styles.label}>Purchase Date</Text>
-                <TextInput
-                  ref={purchaseDateRef}
-                  style={styles.input}
-                  placeholder="March 2021"
-                  placeholderTextColor={colors.textMuted}
+                <DatePickerField
+                  label="Purchase Date"
                   value={form.purchaseDate}
-                  onChangeText={(v) => set("purchaseDate", v)}
-                  returnKeyType="done"
-                  onFocus={() => scrollFieldIntoView("actions")}
+                  onChange={(iso) => set("purchaseDate", iso)}
+                  optional
+                  placeholder="Tap to choose purchase date"
                 />
               </View>
 
@@ -647,17 +649,49 @@ export default function PropertiesScreen() {
                   <Text style={styles.ghostButtonText}>Cancel</Text>
                 </Pressable>
                 {editingId ? (
-                  <Pressable
-                    style={[styles.ghostButton, (isSaving || isDeleting) && { opacity: 0.6 }]}
-                    onPress={confirmDeleteProperty}
-                    disabled={isSaving || isDeleting}
+                  <View
+                    style={{
+                      marginTop: 20,
+                      paddingTop: 16,
+                      borderTopWidth: 1,
+                      borderTopColor: colors.border,
+                    }}
                   >
-                    {isDeleting ? (
-                      <ActivityIndicator color={colors.danger} />
-                    ) : (
-                      <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete Property</Text>
-                    )}
-                  </Pressable>
+                    <Text
+                      style={{
+                        color: colors.danger,
+                        fontWeight: "800",
+                        fontSize: 13,
+                        marginBottom: 8,
+                      }}
+                    >
+                      Danger Zone
+                    </Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                      Deleting removes this property and associated maintenance, repairs, appliances,
+                      photos, and documents. This cannot be undone.
+                    </Text>
+                    <Pressable
+                      style={{
+                        borderWidth: 1.5,
+                        borderColor: colors.danger,
+                        borderRadius: 12,
+                        paddingVertical: 14,
+                        alignItems: "center",
+                        opacity: isSaving || isDeleting ? 0.6 : 1,
+                      }}
+                      onPress={confirmDeleteProperty}
+                      disabled={isSaving || isDeleting}
+                    >
+                      {isDeleting ? (
+                        <ActivityIndicator color={colors.danger} />
+                      ) : (
+                        <Text style={{ color: colors.danger, fontWeight: "800", fontSize: 15 }}>
+                          Delete Property
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
             </ScrollView>

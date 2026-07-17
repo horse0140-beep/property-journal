@@ -42,6 +42,7 @@ function RepairPhotoThumb({
 
     void resolveRepairPhotoUrl(storedUrl).then((url) => {
       if (cancelled) return;
+      console.log("[RepairPhoto] resolved URL", { storedUrl, resolved: url });
       setDisplayUrl(url);
       setResolving(false);
     });
@@ -97,7 +98,7 @@ function RepairPhotoThumb({
             style={{ width: THUMB, height: THUMB }}
             resizeMode="cover"
             onError={(e) => {
-              console.warn("[REPAIR PHOTO IMAGE ERROR]", {
+              console.warn("[RepairPhoto] image error", {
                 displayUrl,
                 error: e.nativeEvent?.error,
               });
@@ -148,7 +149,7 @@ function RepairPhotoThumb({
               style={{ width: "100%", height: "100%" }}
               resizeMode="contain"
               onError={(e) =>
-                console.warn("[REPAIR PHOTO IMAGE ERROR]", {
+                console.warn("[RepairPhoto] image error", {
                   displayUrl,
                   viewer: true,
                   error: e.nativeEvent?.error,

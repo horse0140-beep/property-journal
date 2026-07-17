@@ -19,6 +19,7 @@ import { AdminBadge } from "@/components/admin/AdminBadge";
 import { AdminFormModal } from "@/components/admin/AdminFormModal";
 import { AdminField, AdminSelect } from "@/components/admin/AdminField";
 import { AdminErrorCard } from "@/components/admin/AdminErrorCard";
+import { DatePickerField } from "@/components/DatePickerField";
 import { colors, styles } from "@/constants/theme";
 import {
   createSubscription,
@@ -357,12 +358,12 @@ export default function AdminSubscriptionsScreen() {
             keyboardType="decimal-pad"
             placeholder="4.99"
           />
-          <AdminField
-            label="Expires (YYYY-MM-DD)"
+          <DatePickerField
+            label="Expires"
             value={form.expires_at}
-            onChangeText={(v) => setForm((f) => ({ ...f, expires_at: v }))}
-            autoCapitalize="none"
-            placeholder="2027-01-01"
+            onChange={(iso) => setForm((f) => ({ ...f, expires_at: iso }))}
+            optional
+            placeholder="Tap to choose expiration date"
           />
         </AdminFormModal>
       </Screen>

@@ -28,9 +28,12 @@ import type { MaintenanceItem, Property } from "@/context/HomeWiseContext";
 import type { Contractor, Document } from "@/data/demoData";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
 import { showMaintenanceSaveError, showRepairSaveError } from "@/lib/maintenanceRepairSave";
-import { normalizeDateForDatabase } from "@/lib/dateForDatabase";
+import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
+import { RepairDetailModal } from "@/components/RepairDetailModal";
+import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
+import type { Repair } from "@/data/demoData";
 import { matchesPropertyId } from "@/types/database";
 import { useUpgrade } from "@/context/UpgradeContext";
 import {
@@ -92,6 +95,14 @@ function conditionColor(c: string) {
 
 function computeMaintenanceStatus(nextDue: string): MaintenanceItem["status"] {
   if (!nextDue || nextDue === "TBD") return "Upcoming";
+  const iso = toIsoDateValue(nextDue);
+  if (iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const days = (new Date(y, m - 1, d).getTime() - Date.now()) / 86400000;
+    if (days < 0) return "Overdue";
+    if (days <= 30) return "Due Soon";
+    return "Upcoming";
+  }
   const parsed = Date.parse(nextDue);
   if (Number.isNaN(parsed)) return "Upcoming";
   const days = (parsed - Date.now()) / 86400000;
@@ -187,12 +198,14 @@ export default function PropertyDetailContent({
   const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
 
-  // Maintenance
+  // Maintenance — dates stored as ISO YYYY-MM-DD from the calendar picker
   const [mTitle, setMTitle] = useState("");
   const [mCategory, setMCategory] = useState("General");
   const [mNextDue, setMNextDue] = useState("");
+  const [mLastCompleted, setMLastCompleted] = useState("");
   const [mNotes, setMNotes] = useState("");
   const [mPriority, setMPriority] = useState<"low" | "medium" | "high">("medium");
+  const [viewRepair, setViewRepair] = useState<Repair | null>(null);
 
   // Repair
   const [rTitle, setRTitle] = useState("");
@@ -292,6 +305,7 @@ export default function PropertyDetailContent({
     setEditingId(null);
     setMTitle("");
     setMNextDue("");
+    setMLastCompleted("");
     setMNotes("");
     setMCategory("General");
     setMPriority("medium");
@@ -343,10 +357,26 @@ export default function PropertyDetailContent({
     setEditingId(item.id);
     setMTitle(item.title);
     setMCategory(item.category);
-    setMNextDue(item.nextDue);
+    setMNextDue(toIsoDateValue(item.nextDue) ?? "");
+    setMLastCompleted(toIsoDateValue(item.lastCompleted) ?? "");
     setMNotes(item.notes ?? "");
     setMPriority(item.priority);
     setModal("maintenance");
+  }
+
+  function openEditRepair(item: Repair) {
+    console.log("[RepairCard] tapped", { id: item.id, title: item.title });
+    setViewRepair(null);
+    setEditingId(item.id);
+    setRTitle(item.title);
+    setRDate(toIsoDateValue(item.date) ?? "");
+    setRCost(item.cost ?? "");
+    setRContractor(item.contractor === "Not listed" ? "" : (item.contractor ?? ""));
+    setRCategory(item.category || "General");
+    setRNotes(item.notes ?? "");
+    setRWarranty(toIsoDateValue(item.warrantyExpires) ?? "");
+    setRPhotoUris([...(item.photoUris ?? [])]);
+    setModal("repair");
   }
 
   function openEditAppliance(a: (typeof appliances)[number]) {
@@ -355,9 +385,9 @@ export default function PropertyDetailContent({
     setABrand(a.brand ?? "");
     setAModel(a.model ?? "");
     setASerial(a.serial ?? "");
-    setAInstall(a.installDate ?? "");
+    setAInstall(toIsoDateValue(a.installDate) ?? "");
     setAPrice(a.purchasePrice ?? "");
-    setAWarranty(a.warrantyExpires ?? "");
+    setAWarranty(toIsoDateValue(a.warrantyExpires) ?? "");
     setACondition(a.condition);
     setANotes(a.notes ?? "");
     setALife(String(a.expectedLifeYears ?? 12));
@@ -387,7 +417,7 @@ export default function PropertyDetailContent({
       uploadDate: d.uploadDate,
       notes: d.notes ?? "",
       tags: d.tags ?? [],
-      expiresDate: d.expiresDate ?? "",
+      expiresDate: toIsoDateValue(d.expiresDate) ?? "",
       fileUri: d.fileUri,
     });
     setPickedFileName(d.fileUri ? d.title : null);
@@ -424,17 +454,23 @@ export default function PropertyDetailContent({
           Alert.alert("Required", "Enter a task name.");
           return;
         }
-        const nextDueCheck = normalizeDateForDatabase(mNextDue);
-        if (!nextDueCheck.ok) {
-          Alert.alert("Invalid Date", nextDueCheck.error);
+        const nextDueIso = toIsoDateValue(mNextDue);
+        if (!nextDueIso) {
+          Alert.alert("Required", "Choose a next due date from the calendar.");
           return;
         }
-        const status = computeMaintenanceStatus(nextDueCheck.iso ?? "TBD");
+        const lastCompletedIso = toIsoDateValue(mLastCompleted);
+        if (mLastCompleted.trim() && !lastCompletedIso) {
+          Alert.alert("Invalid Date", "Choose a valid last completed date from the calendar.");
+          return;
+        }
+        const status = computeMaintenanceStatus(nextDueIso);
         if (editingId) {
           await updateMaintenanceItem(editingId, {
             title: mTitle,
             category: mCategory,
-            nextDue: mNextDue || "TBD",
+            nextDue: nextDueIso,
+            lastCompleted: lastCompletedIso ?? "",
             notes: mNotes,
             priority: mPriority,
             status,
@@ -445,8 +481,8 @@ export default function PropertyDetailContent({
             propertyId: pid,
             title: mTitle,
             category: mCategory,
-            lastCompleted: "Not yet",
-            nextDue: mNextDue || "TBD",
+            lastCompleted: lastCompletedIso ?? "",
+            nextDue: nextDueIso,
             status,
             notes: mNotes,
             recurring: true,
@@ -459,30 +495,46 @@ export default function PropertyDetailContent({
           Alert.alert("Required", "Enter a repair name.");
           return;
         }
-        const repairDateCheck = normalizeDateForDatabase(rDate);
-        if (!repairDateCheck.ok) {
-          Alert.alert("Invalid Date", repairDateCheck.error);
+        const repairDateIso = toIsoDateValue(rDate);
+        if (!repairDateIso) {
+          Alert.alert("Required", "Choose a repair date from the calendar.");
           return;
         }
-        const warrantyCheck = normalizeDateForDatabase(rWarranty);
-        if (!warrantyCheck.ok) {
-          Alert.alert("Invalid Warranty Date", warrantyCheck.error);
+        const warrantyIso = toIsoDateValue(rWarranty);
+        if (rWarranty.trim() && !warrantyIso) {
+          Alert.alert("Invalid Warranty Date", "Choose a valid warranty date from the calendar.");
           return;
         }
-        saved = await addRepair({
+        const repairPayload = {
           propertyId: pid,
           title: rTitle,
-          date: rDate,
+          date: repairDateIso,
           cost: rCost,
           contractor: rContractor || "Not listed",
           category: rCategory,
           notes: rNotes,
           photoUris: rPhotoUris,
-          warrantyExpires: rWarranty || undefined,
-        });
+          warrantyExpires: warrantyIso ?? undefined,
+        };
+        if (editingId) {
+          await updateRepair(editingId, repairPayload);
+          saved = { id: editingId, title: rTitle };
+        } else {
+          saved = await addRepair(repairPayload);
+        }
       } else if (activeModal === "appliance") {
         if (!aName.trim()) {
           Alert.alert("Required", "Enter appliance name.");
+          return;
+        }
+        const installIso = toIsoDateValue(aInstall);
+        if (aInstall.trim() && !installIso) {
+          Alert.alert("Invalid Install Date", "Choose a valid install date from the calendar.");
+          return;
+        }
+        const applianceWarrantyIso = toIsoDateValue(aWarranty);
+        if (aWarranty.trim() && !applianceWarrantyIso) {
+          Alert.alert("Invalid Warranty Date", "Choose a valid warranty date from the calendar.");
           return;
         }
         const payload = {
@@ -492,10 +544,10 @@ export default function PropertyDetailContent({
           brand: aBrand,
           model: aModel,
           serial: aSerial,
-          installDate: aInstall,
+          installDate: installIso ?? "",
           purchasePrice: aPrice,
           expectedLifeYears: parseInt(aLife, 10) || 12,
-          warrantyExpires: aWarranty,
+          warrantyExpires: applianceWarrantyIso ?? "",
           lastService: "Not recorded",
           nextService: "TBD",
           condition: aCondition,
@@ -512,6 +564,11 @@ export default function PropertyDetailContent({
           Alert.alert("Required", "Enter a room.");
           return;
         }
+        const paintDateIso = toIsoDateValue(pDate);
+        if (pDate.trim() && !paintDateIso) {
+          Alert.alert("Invalid Date", "Choose a valid purchase date from the calendar.");
+          return;
+        }
         saved = await addPaintColor({
           propertyId: pid,
           room: pRoom,
@@ -520,7 +577,7 @@ export default function PropertyDetailContent({
           colorCode: pCode,
           finish: pFinish,
           hex: pHex.startsWith("#") ? pHex : `#${pHex}`,
-          purchaseDate: pDate,
+          purchaseDate: paintDateIso ?? "",
           notes: pNotes,
         });
       } else if (activeModal === "contractor") {
@@ -556,6 +613,11 @@ export default function PropertyDetailContent({
           Alert.alert("Required", "Please enter a document title.");
           return;
         }
+        const expiresIso = toIsoDateValue(docForm.expiresDate);
+        if ((docForm.expiresDate ?? "").trim() && !expiresIso) {
+          Alert.alert("Invalid Date", "Choose a valid expiration date from the calendar.");
+          return;
+        }
         if (editingId) {
           if (!docForm.fileUri?.trim()) {
             Alert.alert("File Missing", "This document has no file attached.");
@@ -565,6 +627,7 @@ export default function PropertyDetailContent({
             title: docForm.title.trim(),
             category: docForm.category,
             notes: docForm.notes,
+            expiresDate: expiresIso ?? "",
           });
           saved = { id: editingId, title: docForm.title };
         } else {
@@ -576,7 +639,11 @@ export default function PropertyDetailContent({
             showUpgrade("cloud_backup");
             return;
           }
-          saved = await addDocument({ ...docForm, propertyId: pid });
+          saved = await addDocument({
+            ...docForm,
+            propertyId: pid,
+            expiresDate: expiresIso ?? "",
+          });
         }
       } else if (activeModal === "photo") {
         if (!pendingPhotoUri) {
@@ -845,7 +912,7 @@ export default function PropertyDetailContent({
                 <View style={styles.rowBetween}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardTitle}>{item.title}</Text>
-                    <Text style={styles.muted}>Due {item.nextDue || "—"} · {item.category}</Text>
+                    <Text style={styles.muted}>Due {formatDateForDisplay(item.nextDue) || "—"} · {item.category}</Text>
                   </View>
                   <Text style={statusBadge(item.status)}>{item.status}</Text>
                 </View>
@@ -874,25 +941,29 @@ export default function PropertyDetailContent({
           <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No repairs logged yet.</Text>
         ) : (
           propRepairs.map((r) => (
-            <Card key={r.id} style={{ marginBottom: 10 }}>
-              <Text style={styles.cardTitle}>{r.title}</Text>
-              <Text style={styles.muted}>{r.date} · ${r.cost} · {r.contractor}</Text>
-              <RepairPhotoStrip
-                urls={r.photoUris ?? []}
-                onDeletePhoto={(storedUrl) => handleDeleteRepairPhoto(r.id, storedUrl)}
-              />
-              <Pressable
-                onPress={() =>
-                  Alert.alert("Delete", `Remove "${r.title}"?`, [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: () => deleteRepair(r.id) },
-                  ])
-                }
-                style={{ marginTop: 8 }}
-              >
-                <Text style={styles.deleteText}>Delete</Text>
-              </Pressable>
-            </Card>
+            <Pressable
+              key={r.id}
+              onPress={() => {
+                console.log("[RepairCard] tapped", { id: r.id, title: r.title });
+                setViewRepair(r);
+              }}
+            >
+              <Card style={{ marginBottom: 10 }}>
+                <View style={styles.rowBetween}>
+                  <Text style={[styles.cardTitle, { flex: 1 }]}>{r.title}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </View>
+                <Text style={styles.muted}>
+                  {formatDateForDisplay(r.date) || r.date}
+                  {r.cost ? ` · $${r.cost}` : ""}
+                  {r.contractor && r.contractor !== "Not listed" ? ` · ${r.contractor}` : ""}
+                </Text>
+                <RepairPhotoStrip urls={r.photoUris ?? []} />
+                <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
+                  Tap to view or edit
+                </Text>
+              </Card>
+            </Pressable>
           ))
         )}
       </>
@@ -945,27 +1016,37 @@ export default function PropertyDetailContent({
           ))
         );
       case "photos":
-        return propPhotos.length === 0 ? (
-          <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No photos yet.</Text>
-        ) : (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {propPhotos.map((ph) => (
-              <PhotoCard
-                key={ph.id}
-                photo={ph}
-                size={THUMB_SIZE}
-                onUpdatePhoto={async (id, updates) => {
-                  await updatePhoto(id, updates);
-                  await refreshData().catch(() => {});
-                }}
-                onDelete={() =>
-                  Alert.alert("Delete", "Remove this photo?", [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: () => deletePhoto(ph.id) },
-                  ])
-                }
-              />
-            ))}
+        return (
+          <View>
+            <Text style={{ color: colors.textPrimary, fontWeight: "800", fontSize: 16, marginBottom: 4 }}>
+              Property Photos
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 12 }}>
+              View exterior, interior, repair, and project photos.
+            </Text>
+            {propPhotos.length === 0 ? (
+              <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No photos yet.</Text>
+            ) : (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                {propPhotos.map((ph) => (
+                  <PhotoCard
+                    key={ph.id}
+                    photo={ph}
+                    size={THUMB_SIZE}
+                    onUpdatePhoto={async (id, updates) => {
+                      await updatePhoto(id, updates);
+                      await refreshData().catch(() => {});
+                    }}
+                    onDelete={() =>
+                      Alert.alert("Delete", "Remove this photo?", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => deletePhoto(ph.id) },
+                      ])
+                    }
+                  />
+                ))}
+              </View>
+            )}
           </View>
         );
       case "contractors":
@@ -987,7 +1068,9 @@ export default function PropertyDetailContent({
         ? "Edit Task"
         : "Add Task"
       : modal === "repair"
-        ? "Log Repair"
+        ? editingId
+          ? "Edit Repair"
+          : "Log Repair"
         : modal === "appliance"
           ? editingId
             ? "Edit Appliance"
@@ -1103,8 +1186,20 @@ export default function PropertyDetailContent({
                 </Pressable>
               ))}
             </ScrollView>
-            <Text style={styles.label}>Next Due Date</Text>
-            <TextInput style={styles.input} placeholder="e.g. June 2026 or 06/15/2026" placeholderTextColor={colors.textMuted} value={mNextDue} onChangeText={setMNextDue} />
+            <DatePickerField
+              label="Next Due Date"
+              value={mNextDue}
+              onChange={setMNextDue}
+              required
+              placeholder="Tap to choose next due date"
+            />
+            <DatePickerField
+              label="Last Completed"
+              value={mLastCompleted}
+              onChange={setMLastCompleted}
+              optional
+              placeholder="Tap to choose last completed date"
+            />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={mNotes} onChangeText={setMNotes} multiline />
           </>
@@ -1122,10 +1217,26 @@ export default function PropertyDetailContent({
                 </Pressable>
               ))}
             </ScrollView>
-            <Text style={styles.label}>Date</Text>
-            <TextInput style={styles.input} placeholder="e.g. May 2024 or 05/10/2024" placeholderTextColor={colors.textMuted} value={rDate} onChangeText={setRDate} />
+            <DatePickerField
+              label="Date"
+              value={rDate}
+              onChange={setRDate}
+              required
+              placeholder="Tap to choose repair date"
+            />
             <Text style={styles.label}>Cost ($)</Text>
             <TextInput style={styles.input} placeholder="1,200" placeholderTextColor={colors.textMuted} value={rCost} onChangeText={setRCost} keyboardType="numeric" />
+            <Text style={styles.label}>Contractor</Text>
+            <TextInput style={styles.input} placeholder="Company or technician" placeholderTextColor={colors.textMuted} value={rContractor} onChangeText={setRContractor} />
+            <DatePickerField
+              label="Warranty Expiration"
+              value={rWarranty}
+              onChange={setRWarranty}
+              optional
+              placeholder="Tap to choose warranty end date"
+            />
+            <Text style={styles.label}>Notes</Text>
+            <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={rNotes} onChangeText={setRNotes} multiline />
             <Text style={styles.label}>Photos</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <Pressable
@@ -1150,9 +1261,12 @@ export default function PropertyDetailContent({
               </View>
             ) : null}
             {rPhotoUris.length > 0 ? (
-              <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>
-                {rPhotoUris.length} photo{rPhotoUris.length === 1 ? "" : "s"} attached
-              </Text>
+              <>
+                <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>
+                  {rPhotoUris.length} photo{rPhotoUris.length === 1 ? "" : "s"} attached
+                </Text>
+                <RepairPhotoStrip urls={rPhotoUris} />
+              </>
             ) : (
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>Optional repair photos</Text>
             )}
@@ -1173,6 +1287,20 @@ export default function PropertyDetailContent({
                 <TextInput style={styles.input} placeholder="XC21-048" placeholderTextColor={colors.textMuted} value={aModel} onChangeText={setAModel} />
               </View>
             </View>
+            <DatePickerField
+              label="Install Date"
+              value={aInstall}
+              onChange={setAInstall}
+              optional
+              placeholder="Tap to choose install date"
+            />
+            <DatePickerField
+              label="Warranty Expiration"
+              value={aWarranty}
+              onChange={setAWarranty}
+              optional
+              placeholder="Tap to choose warranty end date"
+            />
             <Text style={styles.label}>Condition</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {(["Excellent", "Good", "Fair", "Poor", "Replace Soon"] as const).map((c) => (
@@ -1198,6 +1326,13 @@ export default function PropertyDetailContent({
                 </Pressable>
               ))}
             </ScrollView>
+            <DatePickerField
+              label="Purchase Date"
+              value={pDate}
+              onChange={setPDate}
+              optional
+              placeholder="Tap to choose purchase date"
+            />
           </>
         )}
 
@@ -1252,6 +1387,13 @@ export default function PropertyDetailContent({
               value={docForm.notes}
               onChangeText={(v) => setDocForm((f) => ({ ...f, notes: v }))}
               multiline
+            />
+            <DatePickerField
+              label="Expiration Date"
+              value={docForm.expiresDate ?? ""}
+              onChange={(iso) => setDocForm((f) => ({ ...f, expiresDate: iso }))}
+              optional
+              placeholder="Tap to choose expiration date"
             />
             {editingId ? (
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
@@ -1408,6 +1550,15 @@ export default function PropertyDetailContent({
         onClose={() => setViewContractor(null)}
         onDelete={deleteContractor}
         onEdit={viewContractor ? () => openEditContractor(viewContractor) : undefined}
+      />
+
+      <RepairDetailModal
+        visible={viewRepair !== null}
+        repair={viewRepair}
+        onClose={() => setViewRepair(null)}
+        onEdit={openEditRepair}
+        onDelete={deleteRepair}
+        onDeletePhoto={handleDeleteRepairPhoto}
       />
     </Screen>
   );

@@ -11,6 +11,7 @@ import { colors, styles } from "@/constants/theme";
 import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { TabScreenHeader } from "@/components/TabScreenHeader";
+import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { matchesPropertyId } from "@/types/database";
 
 function statusBadge(status: string) {
@@ -104,7 +105,7 @@ export default function MaintenanceScreen() {
               <View style={styles.rowBetween}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.muted}>Due {item.nextDue || "—"}</Text>
+                  <Text style={styles.muted}>Due {formatDateForDisplay(item.nextDue) || "—"}</Text>
                 </View>
                 <Text style={statusBadge(item.status)}>{item.status}</Text>
               </View>

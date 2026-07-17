@@ -73,7 +73,8 @@
           "defaultChannel": "maintenance"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "router": {},

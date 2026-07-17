@@ -132,19 +132,50 @@ export function normalizeDateForDatabase(value: unknown): NormalizedDate {
   };
 }
 
-/** Normalize or throw — for service-layer payload building. */
-export function dateForDatabaseOrThrow(value: unknown, fieldLabel: string): string | null {
-  const result = normalizeDateForDatabase(value);
-  if (!result.ok) {
-    throw new Error(`${fieldLabel}: ${result.error}`);
+const STRICT_ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Service-layer guard: accept ONLY strict ISO YYYY-MM-DD (or empty → null).
+ * Rejects free-text like "Jun 2026", "June 2026", "2025", "06/15/2026".
+ * Call this before any value is written to a PostgreSQL date column.
+ */
+export function assertStrictIsoDate(
+  value: unknown,
+  fieldLabel: string
+): string | null {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const lower = raw.toLowerCase();
+  if (PLACEHOLDER_TEXT.has(lower)) return null;
+
+  const m = STRICT_ISO_RE.exec(raw);
+  if (!m) {
+    throw new Error(
+      `${fieldLabel}: "${raw}" is not a valid ISO date (YYYY-MM-DD). Use the calendar picker.`
+    );
   }
-  return result.iso;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const built = buildIso(year, month, day);
+  if (!built.ok || !built.iso) {
+    throw new Error(`${fieldLabel}: "${raw}" is not a valid calendar date.`);
+  }
+  return built.iso;
+}
+
+/** Normalize or throw — prefers strict ISO; does not accept free-text at the service layer. */
+export function dateForDatabaseOrThrow(value: unknown, fieldLabel: string): string | null {
+  return assertStrictIsoDate(value, fieldLabel);
 }
 
 /**
  * Set an ISO date on an insert/update row.
  * undefined → omit; empty/placeholder → omit (never write display text);
- * invalid → throw before the request reaches Supabase.
+ * non-ISO → throw before the request reaches Supabase.
  */
 export function setIsoDateFieldOmit(
   row: Record<string, unknown>,
@@ -153,9 +184,22 @@ export function setIsoDateFieldOmit(
   fieldLabel?: string
 ): void {
   if (value === undefined) return;
-  const iso = dateForDatabaseOrThrow(value, fieldLabel ?? key);
+  const iso = assertStrictIsoDate(value, fieldLabel ?? key);
   if (iso === null) return;
   row[key] = iso;
+}
+
+/**
+ * Like setIsoDateFieldOmit but writes null when empty (for nullable date columns).
+ */
+export function setIsoDateFieldNullable(
+  row: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  fieldLabel?: string
+): void {
+  if (value === undefined) return;
+  row[key] = assertStrictIsoDate(value, fieldLabel ?? key);
 }
 
 /** Today's date as ISO YYYY-MM-DD (device-local). */
@@ -191,6 +235,5 @@ export function formatDateForDisplay(value: unknown): string {
   if (month < 1 || month > 12) return raw;
 
   const monthName = MONTH_NAMES[month - 1];
-  if (day === 1) return `${monthName} ${year}`;
-  return `${monthName.slice(0, 3)} ${day}, ${year}`;
+  return `${monthName} ${day}, ${year}`;
 }

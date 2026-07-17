@@ -9,11 +9,11 @@ import { logSaveErrorFull } from "@/lib/saveLogs";
 import { isInsertOkSelectFailed } from "@/lib/realSaveError";
 import { fetchInsertedRow, runSaveWithRetry } from "@/lib/saveReliability";
 import {
-  setDateFieldNullable,
   setNumericFieldNullable,
   setTextField,
   toNumericOrNull,
 } from "@/lib/dbSanitize";
+import { setIsoDateFieldNullable } from "@/lib/dateForDatabase";
 import type { Appliance } from "@/data/demoData";
 import { applianceToRow, rowToAppliance } from "@/types/database";
 
@@ -41,10 +41,10 @@ function buildApplianceUpdateRow(updates: Partial<Appliance>): Record<string, un
   if (updates.brand !== undefined) setTextField(row, "brand", updates.brand);
   if (updates.model !== undefined) setTextField(row, "model", updates.model);
   if (updates.serial !== undefined) setTextField(row, "serial", updates.serial);
-  if (updates.installDate !== undefined) setDateFieldNullable(row, "install_date", updates.installDate);
+  if (updates.installDate !== undefined) setIsoDateFieldNullable(row, "install_date", updates.installDate, "Install date");
   if (updates.purchasePrice !== undefined) setNumericFieldNullable(row, "purchase_price", updates.purchasePrice);
   if (updates.expectedLifeYears !== undefined) row.expected_life_years = toNumericOrNull(updates.expectedLifeYears);
-  if (updates.warrantyExpires !== undefined) setDateFieldNullable(row, "warranty_expires", updates.warrantyExpires);
+  if (updates.warrantyExpires !== undefined) setIsoDateFieldNullable(row, "warranty_expires", updates.warrantyExpires, "Warranty expires");
   if (updates.lastService !== undefined) setTextField(row, "last_service", updates.lastService);
   if (updates.nextService !== undefined) setTextField(row, "next_service", updates.nextService);
   if (updates.condition !== undefined) setTextField(row, "condition", updates.condition);

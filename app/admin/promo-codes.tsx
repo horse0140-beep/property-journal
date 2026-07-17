@@ -19,6 +19,7 @@ import { AdminBadge } from "@/components/admin/AdminBadge";
 import { AdminFormModal } from "@/components/admin/AdminFormModal";
 import { AdminField, AdminSelect, AdminSwitch } from "@/components/admin/AdminField";
 import { AdminErrorCard } from "@/components/admin/AdminErrorCard";
+import { DatePickerField } from "@/components/DatePickerField";
 import { colors, styles } from "@/constants/theme";
 import {
   createPromoCode,
@@ -382,12 +383,12 @@ export default function AdminPromoCodesScreen() {
             onChangeText={(v) => setForm((f) => ({ ...f, max_uses: v }))}
             keyboardType="numeric"
           />
-          <AdminField
-            label="Expiration Date (YYYY-MM-DD)"
+          <DatePickerField
+            label="Expiration Date"
             value={form.expires_at}
-            onChangeText={(v) => setForm((f) => ({ ...f, expires_at: v }))}
-            placeholder="2026-12-31"
-            autoCapitalize="none"
+            onChange={(iso) => setForm((f) => ({ ...f, expires_at: iso }))}
+            optional
+            placeholder="Tap to choose expiration date"
           />
           <AdminSwitch
             label="Active"

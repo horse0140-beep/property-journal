@@ -11,7 +11,6 @@ import type {
 import type { PropertyScore } from "@/context/HomeWiseContext";
 import { normalizePhotoItem } from "@/lib/photoUtils";
 import {
-  setDateFieldNullable,
   setNumericFieldNullable,
   setNumericFieldOmit,
   setTextField,
@@ -19,8 +18,8 @@ import {
   toNumericOrNull,
 } from "@/lib/dbSanitize";
 import {
-  formatDateForDisplay,
   setIsoDateFieldOmit,
+  setIsoDateFieldNullable,
   todayIsoDate,
   dateForDatabaseOrThrow,
 } from "@/lib/dateForDatabase";
@@ -29,6 +28,17 @@ function parsePhotoUri(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Keep PostgreSQL date values as ISO YYYY-MM-DD in the domain model. */
+function toIsoOrEmpty(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // Legacy free-text already in DB: leave empty so picker forces a real date
+  return "";
 }
 
 const DOCUMENT_CATEGORIES = [
@@ -108,7 +118,7 @@ export function rowToProperty(row: Record<string, unknown>): Property {
     bathrooms: toDisplayString(row.bathrooms),
     purchasePrice: toDisplayString(row.purchase_price),
     estimatedValue: toDisplayString(row.estimated_value ?? row.value),
-    purchaseDate: toDisplayString(row.purchase_date),
+    purchaseDate: toIsoOrEmpty(row.purchase_date),
     photoUri: parsePhotoUri(row.photo_url ?? row.image_url),
     isSelected: Boolean(row.is_selected ?? row.is_primary),
   };
@@ -140,7 +150,7 @@ export function propertyToRow(p: Property): Record<string, unknown> {
   setNumericFieldNullable(row, "bathrooms", p.bathrooms);
   setNumericFieldNullable(row, "purchase_price", p.purchasePrice);
   setNumericFieldNullable(row, "estimated_value", p.estimatedValue);
-  setDateFieldNullable(row, "purchase_date", p.purchaseDate);
+  setIsoDateFieldNullable(row, "purchase_date", p.purchaseDate, "Purchase date");
 
   const photo = parsePhotoUri(p.photoUri);
   if (photo) {
@@ -174,7 +184,7 @@ function propertyPartialToRow(updates: Partial<Property>): Record<string, unknow
   if (updates.bathrooms !== undefined) setNumericFieldNullable(row, "bathrooms", updates.bathrooms);
   if (updates.purchasePrice !== undefined) setNumericFieldNullable(row, "purchase_price", updates.purchasePrice);
   if (updates.estimatedValue !== undefined) setNumericFieldNullable(row, "estimated_value", updates.estimatedValue);
-  if (updates.purchaseDate !== undefined) setDateFieldNullable(row, "purchase_date", updates.purchaseDate);
+  if (updates.purchaseDate !== undefined) setIsoDateFieldNullable(row, "purchase_date", updates.purchaseDate, "Purchase date");
   if (updates.photoUri !== undefined && updates.photoUri) {
     row.photo_url = updates.photoUri;
     row.image_url = updates.photoUri;
@@ -197,8 +207,9 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
     propertyId: row.property_id as string,
     title: row.title as string,
     category: toDisplayString(row.category),
-    lastCompleted: formatDateForDisplay(row.last_completed),
-    nextDue: formatDateForDisplay(row.next_due),
+    // Keep ISO YYYY-MM-DD in the model; format only in UI.
+    lastCompleted: toIsoOrEmpty(row.last_completed),
+    nextDue: toIsoOrEmpty(row.next_due),
     status: (row.status as MaintenanceItem["status"]) ?? "Upcoming",
     notes: toDisplayString(row.notes),
     recurring: Boolean(row.recurring),
@@ -238,14 +249,14 @@ export function rowToRepair(row: Record<string, unknown>): Repair {
     id: row.id as string,
     propertyId: row.property_id as string,
     title: row.title as string,
-    date: formatDateForDisplay(row.date),
+    date: toIsoOrEmpty(row.date),
     cost: toDisplayString(row.cost),
     contractor: toDisplayString(row.contractor),
     category: toDisplayString(row.category),
     notes: toDisplayString(row.notes),
     photoUris: (row.photo_urls as string[]) ?? [],
     receiptUri: parsePhotoUri(row.receipt_url),
-    warrantyExpires: formatDateForDisplay(row.warranty_expires) || undefined,
+    warrantyExpires: toIsoOrEmpty(row.warranty_expires) || undefined,
   };
 }
 
@@ -280,8 +291,8 @@ export function repairToRow(userId: string, r: Repair): Record<string, unknown> 
 
 export function rowToAppliance(row: Record<string, unknown>): Appliance {
   const serial = toDisplayString(row.serial_number ?? row.serial);
-  const installDate = toDisplayString(row.purchase_date ?? row.install_date);
-  const warrantyExpires = toDisplayString(row.warranty_expiration ?? row.warranty_expires);
+  const installDate = toIsoOrEmpty(row.purchase_date ?? row.install_date);
+  const warrantyExpires = toIsoOrEmpty(row.warranty_expiration ?? row.warranty_expires);
 
   return {
     id: row.id as string,
@@ -323,7 +334,7 @@ export function applianceToRow(userId: string, a: Appliance): Record<string, unk
     setTextField(row, "serial", a.serial);
   }
 
-  setDateFieldNullable(row, "install_date", a.installDate);
+  setIsoDateFieldNullable(row, "install_date", a.installDate, "Install date");
   setNumericFieldNullable(row, "purchase_price", a.purchasePrice);
 
   const lifeYears = toNumericOrNull(a.expectedLifeYears);
@@ -331,7 +342,7 @@ export function applianceToRow(userId: string, a: Appliance): Record<string, unk
     row.expected_life_years = lifeYears;
   }
 
-  setDateFieldNullable(row, "warranty_expires", a.warrantyExpires);
+  setIsoDateFieldNullable(row, "warranty_expires", a.warrantyExpires, "Warranty expires");
   setTextField(row, "last_service", a.lastService);
   setTextField(row, "next_service", a.nextService);
   setTextField(row, "condition", a.condition || "Good");
@@ -413,7 +424,7 @@ export function paintToRow(userId: string, p: PaintColor): Record<string, unknow
   setTextField(row, "color_code", p.colorCode);
   setTextField(row, "finish", p.finish);
   setTextField(row, "hex", p.hex);
-  setDateFieldNullable(row, "purchase_date", p.purchaseDate);
+  setIsoDateFieldNullable(row, "purchase_date", p.purchaseDate, "Purchase date");
   setTextField(row, "notes", p.notes);
 
   return row;
@@ -430,7 +441,7 @@ export function rowToDocument(row: Record<string, unknown>, categoryOverride?: D
     fileType: (row.file_type as Document["fileType"]) ?? "pdf",
     fileSize: (row.file_size as string) ?? "",
     uploadDate: (row.upload_date as string) ?? "",
-    expiresDate: (row.expires_date as string) ?? undefined,
+    expiresDate: toIsoOrEmpty(row.expires_date) || undefined,
     notes: (row.notes as string) ?? "",
     tags: (row.tags as string[]) ?? [],
   };
