@@ -32,6 +32,7 @@ import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 import { RepairDetailModal } from "@/components/RepairDetailModal";
+import { MaintenanceDetailModal } from "@/components/MaintenanceDetailModal";
 import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 import type { Repair } from "@/data/demoData";
 import { matchesPropertyId } from "@/types/database";
@@ -206,6 +207,7 @@ export default function PropertyDetailContent({
   const [mNotes, setMNotes] = useState("");
   const [mPriority, setMPriority] = useState<"low" | "medium" | "high">("medium");
   const [viewRepair, setViewRepair] = useState<Repair | null>(null);
+  const [viewMaintenance, setViewMaintenance] = useState<MaintenanceItem | null>(null);
 
   // Repair
   const [rTitle, setRTitle] = useState("");
@@ -354,6 +356,7 @@ export default function PropertyDetailContent({
   }
 
   function openEditMaintenance(item: MaintenanceItem) {
+    setViewMaintenance(null);
     setEditingId(item.id);
     setMTitle(item.title);
     setMCategory(item.category);
@@ -908,33 +911,31 @@ export default function PropertyDetailContent({
             <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No maintenance tasks yet.</Text>
           ) : (
             maint.map((item) => (
-              <Card key={item.id} style={{ marginBottom: 10 }}>
-                <View style={styles.rowBetween}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    <Text style={styles.muted}>Due {formatDateForDisplay(item.nextDue) || "—"} · {item.category}</Text>
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  console.log("[MaintenanceCard] tapped", { id: item.id, title: item.title });
+                  setViewMaintenance(item);
+                }}
+              >
+                <Card style={{ marginBottom: 10 }}>
+                  <View style={styles.rowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>{item.title}</Text>
+                      <Text style={styles.muted}>
+                        Due {formatDateForDisplay(item.nextDue) || "—"} · {item.category}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end", gap: 6 }}>
+                      <Text style={statusBadge(item.status)}>{item.status}</Text>
+                      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    </View>
                   </View>
-                  <Text style={statusBadge(item.status)}>{item.status}</Text>
-                </View>
-                <View style={{ flexDirection: "row", gap: 12, marginTop: 10 }}>
-                  <Pressable onPress={() => openEditMaintenance(item)}>
-                    <Text style={{ color: colors.primary, fontWeight: "700" }}>Edit</Text>
-                  </Pressable>
-                  <Pressable onPress={() => completeMaintenanceItem(item.id)}>
-                    <Text style={{ color: colors.success, fontWeight: "700" }}>Done</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() =>
-                      Alert.alert("Delete", `Remove "${item.title}"?`, [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => deleteMaintenanceItem(item.id) },
-                      ])
-                    }
-                  >
-                    <Text style={styles.deleteText}>Delete</Text>
-                  </Pressable>
-                </View>
-              </Card>
+                  <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
+                    Tap to view notes or edit
+                  </Text>
+                </Card>
+              </Pressable>
             ))
           )
         ) : propRepairs.length === 0 ? (
@@ -1559,6 +1560,17 @@ export default function PropertyDetailContent({
         onEdit={openEditRepair}
         onDelete={deleteRepair}
         onDeletePhoto={handleDeleteRepairPhoto}
+      />
+
+      <MaintenanceDetailModal
+        visible={viewMaintenance !== null}
+        item={viewMaintenance}
+        onClose={() => setViewMaintenance(null)}
+        onEdit={openEditMaintenance}
+        onComplete={(id) => {
+          void completeMaintenanceItem(id);
+        }}
+        onDelete={deleteMaintenanceItem}
       />
     </Screen>
   );

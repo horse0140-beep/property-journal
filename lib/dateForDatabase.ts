@@ -132,6 +132,53 @@ export function normalizeDateForDatabase(value: unknown): NormalizedDate {
   };
 }
 
+/**
+ * Parse optional typed date entry for the UI date field.
+ * Accepts ONLY full dates:
+ *   - MM/DD/YYYY
+ *   - Month Day, Year (e.g. June 15, 2026)
+ *   - YYYY-MM-DD
+ * Rejects partial values such as "June 2026" or "2026".
+ */
+export function parseTypedDateEntry(value: unknown): NormalizedDate {
+  if (value === undefined || value === null) return { ok: true, iso: null };
+
+  const raw = String(value).trim();
+  if (!raw) return { ok: true, iso: null };
+
+  // YYYY-MM-DD
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (m) return buildIso(Number(m[1]), Number(m[2]), Number(m[3]));
+
+  // MM/DD/YYYY
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+  if (m) return buildIso(Number(m[3]), Number(m[1]), Number(m[2]));
+
+  // "June 15, 2026" / "Jun 15 2026" / "June 15th, 2026"
+  m = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i.exec(raw);
+  if (m) {
+    const month = MONTH_LOOKUP[m[1].toLowerCase()];
+    if (month) return buildIso(Number(m[3]), month, Number(m[2]));
+  }
+
+  // Explicitly reject known partial formats
+  if (
+    /^([a-z]+)\.?\s+(\d{4})$/i.test(raw) ||
+    /^(\d{4})$/.test(raw) ||
+    /^(\d{1,2})\/(\d{4})$/.test(raw)
+  ) {
+    return {
+      ok: false,
+      error: "Include a full day. Use MM/DD/YYYY, Month Day, Year, or YYYY-MM-DD.",
+    };
+  }
+
+  return {
+    ok: false,
+    error: "Use MM/DD/YYYY, Month Day, Year, or YYYY-MM-DD.",
+  };
+}
+
 const STRICT_ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**

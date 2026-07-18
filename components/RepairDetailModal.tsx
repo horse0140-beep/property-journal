@@ -77,7 +77,20 @@ export function RepairDetailModal({
       <DetailRow label="Cost" value={repair.cost ? `$${repair.cost}` : ""} />
       <DetailRow label="Contractor" value={repair.contractor} />
       <DetailRow label="Warranty Expires" value={repair.warrantyExpires} />
-      <DetailRow label="Notes" value={repair.notes} />
+
+      <View style={{ marginBottom: 12 }}>
+        <Text style={styles.label}>Notes</Text>
+        <Text
+          style={{
+            color: String(repair.notes ?? "").trim() ? colors.textPrimary : colors.textMuted,
+            fontSize: 15,
+            fontWeight: String(repair.notes ?? "").trim() ? "600" : "400",
+            fontStyle: String(repair.notes ?? "").trim() ? "normal" : "italic",
+          }}
+        >
+          {String(repair.notes ?? "").trim() || "No notes added."}
+        </Text>
+      </View>
 
       {photos.length > 0 ? (
         <View style={{ marginBottom: 12 }}>
@@ -98,6 +111,7 @@ export function RepairDetailModal({
       <Pressable
         style={styles.primaryButton}
         onPress={() => {
+          console.log("[RepairDetail] edit selected", { id: repair.id, title: repair.title });
           onEdit(repair);
         }}
       >
