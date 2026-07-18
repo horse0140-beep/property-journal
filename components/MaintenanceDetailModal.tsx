@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardModal } from "@/components/KeyboardModal";
 import { formatPickerDateDisplay, toIsoDateValue } from "@/components/DatePickerField";
@@ -11,7 +11,7 @@ type MaintenanceDetailModalProps = {
   item: MaintenanceItem | null;
   onClose: () => void;
   onEdit: (item: MaintenanceItem) => void;
-  onComplete: (id: string) => void;
+  onComplete: (id: string) => Promise<MaintenanceItem | null | void>;
   onDelete: (id: string) => void;
 };
 
@@ -61,11 +61,21 @@ export function MaintenanceDetailModal({
   onComplete,
   onDelete,
 }: MaintenanceDetailModalProps) {
+  const [completing, setCompleting] = useState(false);
+  const completingRef = useRef(false);
+
   useEffect(() => {
     if (visible && item) {
       console.log("[MaintenanceDetail] opened", { id: item.id, title: item.title });
     }
   }, [visible, item?.id]);
+
+  useEffect(() => {
+    if (!visible) {
+      setCompleting(false);
+      completingRef.current = false;
+    }
+  }, [visible]);
 
   if (!item) return null;
 
@@ -86,13 +96,31 @@ export function MaintenanceDetailModal({
     ]);
   }
 
+  async function handleComplete() {
+    if (completingRef.current || completing) return;
+    completingRef.current = true;
+    setCompleting(true);
+    try {
+      await onComplete(item!.id);
+      // Keep modal open so updated status/dates are visible immediately.
+    } catch (e) {
+      Alert.alert(
+        "Could not complete",
+        e instanceof Error ? e.message : "Please try again when you are online."
+      );
+    } finally {
+      completingRef.current = false;
+      setCompleting(false);
+    }
+  }
+
   return (
     <KeyboardModal visible={visible} onRequestClose={onClose}>
       <View style={styles.rowBetween}>
         <Text style={[styles.modalTitle, { flex: 1, marginRight: 12 }]} numberOfLines={2}>
           {item.title}
         </Text>
-        <Pressable onPress={onClose} hitSlop={8}>
+        <Pressable onPress={onClose} hitSlop={8} disabled={completing}>
           <Ionicons name="close" size={24} color={colors.textMuted} />
         </Pressable>
       </View>
@@ -126,7 +154,8 @@ export function MaintenanceDetailModal({
       </View>
 
       <Pressable
-        style={styles.primaryButton}
+        style={[styles.primaryButton, completing && { opacity: 0.6 }]}
+        disabled={completing}
         onPress={() => {
           console.log("[MaintenanceDetail] edit selected", { id: item.id, title: item.title });
           onEdit(item);
@@ -138,21 +167,29 @@ export function MaintenanceDetailModal({
 
       {canComplete ? (
         <Pressable
-          style={[styles.secondaryButton, { marginTop: 10 }]}
+          style={[styles.secondaryButton, { marginTop: 10 }, completing && { opacity: 0.6 }]}
+          disabled={completing}
           onPress={() => {
-            onComplete(item.id);
-            onClose();
+            void handleComplete();
           }}
         >
-          <Text style={styles.secondaryButtonText}>Mark Complete</Text>
+          {completing ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Mark Complete</Text>
+          )}
         </Pressable>
       ) : null}
 
-      <Pressable style={[styles.secondaryButton, { marginTop: 10 }]} onPress={onClose}>
+      <Pressable
+        style={[styles.secondaryButton, { marginTop: 10 }]}
+        onPress={onClose}
+        disabled={completing}
+      >
         <Text style={styles.secondaryButtonText}>Close</Text>
       </Pressable>
 
-      <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={handleDelete}>
+      <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={handleDelete} disabled={completing}>
         <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete</Text>
       </Pressable>
     </KeyboardModal>

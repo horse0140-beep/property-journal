@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
-import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import { useState } from "react";
+import { Platform, Pressable, Text, View } from "react-native";
 import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, styles } from "@/constants/theme";
-import { parseTypedDateEntry, todayIsoDate } from "@/lib/dateForDatabase";
+import { todayIsoDate } from "@/lib/dateForDatabase";
 
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** Display ISO YYYY-MM-DD as "Month Day, Year" (e.g. June 15, 2026). */
+/** Display ISO YYYY-MM-DD as "Month Day, Year" (e.g. July 15, 2026). */
 export function formatPickerDateDisplay(iso: string | null | undefined): string {
   const raw = String(iso ?? "").trim();
   const m = ISO_DATE_RE.exec(raw);
@@ -27,10 +27,7 @@ export function formatPickerDateDisplay(iso: string | null | undefined): string 
   });
 }
 
-/**
- * Accept only strict ISO YYYY-MM-DD for picker state.
- * Rejects free-text like "Jun 2026", "June 2026", or "2025".
- */
+/** Accept only strict ISO YYYY-MM-DD for picker state. */
 export function toIsoDateValue(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   const raw = String(value).trim();
@@ -71,14 +68,11 @@ export type DatePickerFieldProps = {
   optional?: boolean;
   required?: boolean;
   placeholder?: string;
-  /** When false, hides "Type date instead". Default true. */
-  allowTypedEntry?: boolean;
 };
 
 /**
- * Native calendar date field (Expo SDK 54 / @react-native-community/datetimepicker).
- * Calendar is the default; optional typed entry accepts full dates only.
- * Always stores ISO YYYY-MM-DD.
+ * Native calendar date field only — no typed entry, no keyboard.
+ * Stores ISO YYYY-MM-DD; displays "Month Day, Year".
  */
 export function DatePickerField({
   label,
@@ -86,21 +80,10 @@ export function DatePickerField({
   onChange,
   optional = false,
   required = false,
-  placeholder = "Tap to choose a date",
-  allowTypedEntry = true,
+  placeholder = "Select date",
 }: DatePickerFieldProps) {
   const iso = toIsoDateValue(value);
   const [open, setOpen] = useState(false);
-  const [typedMode, setTypedMode] = useState(false);
-  const [typedText, setTypedText] = useState("");
-  const [typedError, setTypedError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typedMode) {
-      setTypedText(iso ? formatPickerDateDisplay(iso) : "");
-      setTypedError(null);
-    }
-  }, [typedMode, iso]);
 
   function handleChange(event: DateTimePickerEvent, selected?: Date) {
     if (Platform.OS === "android") {
@@ -111,189 +94,91 @@ export function DatePickerField({
     onChange(localDateToIso(selected));
   }
 
-  function applyTypedDate() {
-    const parsed = parseTypedDateEntry(typedText);
-    if (!parsed.ok) {
-      setTypedError(parsed.error);
-      return;
-    }
-    if (parsed.iso === null) {
-      if (required) {
-        setTypedError("Enter a full date or switch back to the calendar.");
-        return;
-      }
-      onChange("");
-      setTypedError(null);
-      setTypedMode(false);
-      return;
-    }
-    onChange(parsed.iso);
-    setTypedError(null);
-    setTypedMode(false);
-  }
-
-  function switchToTyped() {
-    setOpen(false);
-    setTypedMode(true);
-    setTypedError(null);
-    setTypedText(iso ? formatPickerDateDisplay(iso) : "");
-  }
-
-  function switchToCalendar() {
-    setTypedMode(false);
-    setTypedError(null);
-  }
-
   return (
     <View style={{ marginBottom: 4 }}>
       <Text style={styles.label}>
         {label}
         {required ? " *" : optional ? " (optional)" : ""}
       </Text>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={[
+          styles.input,
+          {
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingVertical: Platform.OS === "ios" ? 14 : 12,
+          },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}${iso ? `: ${formatPickerDateDisplay(iso)}` : ""}`}
+      >
+        <Text
+          style={{
+            color: iso ? colors.textPrimary : colors.textMuted,
+            fontSize: 15,
+            fontWeight: iso ? "600" : "400",
+            flex: 1,
+          }}
+          pointerEvents="none"
+        >
+          {iso ? formatPickerDateDisplay(iso) : placeholder}
+        </Text>
+        <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+      </Pressable>
 
-      {typedMode ? (
-        <>
-          <TextInput
-            style={[
-              styles.input,
-              typedError ? { borderColor: colors.danger, borderWidth: 1.5 } : null,
-            ]}
-            value={typedText}
-            onChangeText={(t) => {
-              setTypedText(t);
-              if (typedError) setTypedError(null);
+      {optional && iso ? (
+        <Pressable
+          onPress={() => onChange("")}
+          style={{ alignSelf: "flex-start", marginTop: 6, paddingVertical: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Clear ${label}`}
+        >
+          <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>Clear</Text>
+        </Pressable>
+      ) : null}
+
+      {open ? (
+        Platform.OS === "ios" ? (
+          <View
+            style={{
+              backgroundColor: colors.bgCard,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              marginTop: 8,
+              overflow: "hidden",
             }}
-            placeholder="MM/DD/YYYY or June 15, 2026"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="words"
-            autoCorrect={false}
-            returnKeyType="done"
-            onSubmitEditing={applyTypedDate}
-            onBlur={applyTypedDate}
-            accessibilityLabel={`${label} typed entry`}
-          />
-          {typedError ? (
-            <Text style={{ color: colors.danger, fontSize: 12, fontWeight: "600", marginTop: 6 }}>
-              {typedError}
-            </Text>
-          ) : (
-            <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 6 }}>
-              Accepted: MM/DD/YYYY · Month Day, Year · YYYY-MM-DD
-            </Text>
-          )}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
-            <Pressable onPress={applyTypedDate} accessibilityRole="button">
-              <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 13 }}>Apply date</Text>
-            </Pressable>
-            <Pressable onPress={switchToCalendar} accessibilityRole="button">
-              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Use calendar</Text>
-            </Pressable>
-            {optional ? (
-              <Pressable
-                onPress={() => {
-                  onChange("");
-                  setTypedText("");
-                  setTypedError(null);
-                  setTypedMode(false);
-                }}
-                accessibilityRole="button"
-              >
-                <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>Clear</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </>
-      ) : (
-        <>
-          <Pressable
-            onPress={() => setOpen(true)}
-            style={[
-              styles.input,
-              {
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingVertical: Platform.OS === "ios" ? 14 : 12,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`${label}${iso ? `: ${formatPickerDateDisplay(iso)}` : ""}`}
           >
-            <Text
+            <View
               style={{
-                color: iso ? colors.textPrimary : colors.textMuted,
-                fontSize: 15,
-                fontWeight: iso ? "600" : "400",
-                flex: 1,
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                paddingHorizontal: 12,
+                paddingTop: 8,
               }}
-              pointerEvents="none"
             >
-              {iso ? formatPickerDateDisplay(iso) : placeholder}
-            </Text>
-            <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-          </Pressable>
-
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 6 }}>
-            {allowTypedEntry ? (
-              <Pressable onPress={switchToTyped} accessibilityRole="button">
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
-                  Type date instead
-                </Text>
+              <Pressable onPress={() => setOpen(false)} hitSlop={8}>
+                <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 15 }}>Done</Text>
               </Pressable>
-            ) : null}
-            {optional && iso ? (
-              <Pressable
-                onPress={() => onChange("")}
-                accessibilityRole="button"
-                accessibilityLabel={`Clear ${label}`}
-              >
-                <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>Clear</Text>
-              </Pressable>
-            ) : null}
+            </View>
+            <DateTimePicker
+              value={iso ? isoToLocalDate(iso) : isoToLocalDate(todayIsoDate())}
+              mode="date"
+              display="spinner"
+              onChange={handleChange}
+            />
           </View>
-
-          {open ? (
-            Platform.OS === "ios" ? (
-              <View
-                style={{
-                  backgroundColor: colors.bgCard,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  marginTop: 8,
-                  overflow: "hidden",
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "flex-end",
-                    paddingHorizontal: 12,
-                    paddingTop: 8,
-                  }}
-                >
-                  <Pressable onPress={() => setOpen(false)} hitSlop={8}>
-                    <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 15 }}>Done</Text>
-                  </Pressable>
-                </View>
-                <DateTimePicker
-                  value={iso ? isoToLocalDate(iso) : isoToLocalDate(todayIsoDate())}
-                  mode="date"
-                  display="spinner"
-                  onChange={handleChange}
-                />
-              </View>
-            ) : (
-              <DateTimePicker
-                value={iso ? isoToLocalDate(iso) : isoToLocalDate(todayIsoDate())}
-                mode="date"
-                display="calendar"
-                onChange={handleChange}
-              />
-            )
-          ) : null}
-        </>
-      )}
+        ) : (
+          <DateTimePicker
+            value={iso ? isoToLocalDate(iso) : isoToLocalDate(todayIsoDate())}
+            mode="date"
+            display="default"
+            onChange={handleChange}
+          />
+        )
+      ) : null}
     </View>
   );
 }

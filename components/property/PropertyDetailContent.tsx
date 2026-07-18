@@ -350,6 +350,21 @@ export default function PropertyDetailContent({
     setPhotoSavePhase("idle");
   }
 
+  // Keep the open detail modal in sync with context after Mark Complete / refresh.
+  useEffect(() => {
+    if (!viewMaintenance) return;
+    const fresh = maintenanceItems.find((m) => m.id === viewMaintenance.id);
+    if (!fresh) return;
+    if (
+      fresh.status !== viewMaintenance.status ||
+      fresh.lastCompleted !== viewMaintenance.lastCompleted ||
+      fresh.nextDue !== viewMaintenance.nextDue ||
+      fresh.notes !== viewMaintenance.notes
+    ) {
+      setViewMaintenance(fresh);
+    }
+  }, [maintenanceItems, viewMaintenance]);
+
   function openAdd(kind: PropertyModal) {
     resetForms();
     setModal(kind);
@@ -1192,14 +1207,14 @@ export default function PropertyDetailContent({
               value={mNextDue}
               onChange={setMNextDue}
               required
-              placeholder="Tap to choose next due date"
+              placeholder="Select date"
             />
             <DatePickerField
               label="Last Completed"
               value={mLastCompleted}
               onChange={setMLastCompleted}
               optional
-              placeholder="Tap to choose last completed date"
+              placeholder="Select date"
             />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={mNotes} onChangeText={setMNotes} multiline />
@@ -1223,7 +1238,7 @@ export default function PropertyDetailContent({
               value={rDate}
               onChange={setRDate}
               required
-              placeholder="Tap to choose repair date"
+              placeholder="Select date"
             />
             <Text style={styles.label}>Cost ($)</Text>
             <TextInput style={styles.input} placeholder="1,200" placeholderTextColor={colors.textMuted} value={rCost} onChangeText={setRCost} keyboardType="numeric" />
@@ -1234,7 +1249,7 @@ export default function PropertyDetailContent({
               value={rWarranty}
               onChange={setRWarranty}
               optional
-              placeholder="Tap to choose warranty end date"
+              placeholder="Select date"
             />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={rNotes} onChangeText={setRNotes} multiline />
@@ -1293,14 +1308,14 @@ export default function PropertyDetailContent({
               value={aInstall}
               onChange={setAInstall}
               optional
-              placeholder="Tap to choose install date"
+              placeholder="Select date"
             />
             <DatePickerField
               label="Warranty Expiration"
               value={aWarranty}
               onChange={setAWarranty}
               optional
-              placeholder="Tap to choose warranty end date"
+              placeholder="Select date"
             />
             <Text style={styles.label}>Condition</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -1332,7 +1347,7 @@ export default function PropertyDetailContent({
               value={pDate}
               onChange={setPDate}
               optional
-              placeholder="Tap to choose purchase date"
+              placeholder="Select date"
             />
           </>
         )}
@@ -1394,7 +1409,7 @@ export default function PropertyDetailContent({
               value={docForm.expiresDate ?? ""}
               onChange={(iso) => setDocForm((f) => ({ ...f, expiresDate: iso }))}
               optional
-              placeholder="Tap to choose expiration date"
+              placeholder="Select date"
             />
             {editingId ? (
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>
@@ -1567,9 +1582,7 @@ export default function PropertyDetailContent({
         item={viewMaintenance}
         onClose={() => setViewMaintenance(null)}
         onEdit={openEditMaintenance}
-        onComplete={(id) => {
-          void completeMaintenanceItem(id);
-        }}
+        onComplete={async (id) => completeMaintenanceItem(id)}
         onDelete={deleteMaintenanceItem}
       />
     </Screen>

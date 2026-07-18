@@ -584,7 +584,7 @@ export default function VaultScreen() {
               value={form.expiresDate ?? ""}
               onChange={(iso) => setF("expiresDate", iso)}
               optional
-              placeholder="Tap to choose expiration date"
+              placeholder="Select date"
             />
 
             <Text style={styles.label}>File Type</Text>

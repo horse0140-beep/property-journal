@@ -629,7 +629,7 @@ export default function PropertiesScreen() {
                   value={form.purchaseDate}
                   onChange={(iso) => set("purchaseDate", iso)}
                   optional
-                  placeholder="Tap to choose purchase date"
+                  placeholder="Select date"
                 />
               </View>
 

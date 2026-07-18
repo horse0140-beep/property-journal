@@ -388,7 +388,7 @@ export default function AdminPromoCodesScreen() {
             value={form.expires_at}
             onChange={(iso) => setForm((f) => ({ ...f, expires_at: iso }))}
             optional
-            placeholder="Tap to choose expiration date"
+            placeholder="Select date"
           />
           <AdminSwitch
             label="Active"

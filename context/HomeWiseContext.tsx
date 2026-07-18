@@ -37,18 +37,6 @@ import {
   todayIsoDate,
 } from "@/lib/dateForDatabase";
 import { assertOnlineForWrite } from "@/lib/connectivity";
-
-export type {
-  Property,
-  MaintenanceItem,
-  Repair,
-  Appliance,
-  Document,
-  PaintColor,
-  Contractor,
-  PhotoItem,
-} from "@/data/demoData";
-
 import type {
   Property,
   MaintenanceItem,
@@ -59,6 +47,27 @@ import type {
   Contractor,
   PhotoItem,
 } from "@/data/demoData";
+
+function statusFromNextDue(nextDue: string): MaintenanceItem["status"] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(nextDue ?? "").trim());
+  if (!m) return "Upcoming";
+  const days =
+    (new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() - Date.now()) / 86400000;
+  if (days < 0) return "Overdue";
+  if (days <= 30) return "Due Soon";
+  return "Upcoming";
+}
+
+export type {
+  Property,
+  MaintenanceItem,
+  Repair,
+  Appliance,
+  Document,
+  PaintColor,
+  Contractor,
+  PhotoItem,
+};
 
 type AppState = {
   properties: Property[];
@@ -94,7 +103,7 @@ type AppContextValue = AppState & {
   addMaintenanceItem: (item: Omit<MaintenanceItem, "id">) => Promise<MaintenanceItem>;
   updateMaintenanceItem: (id: string, item: Partial<MaintenanceItem>) => Promise<void>;
   deleteMaintenanceItem: (id: string) => void;
-  completeMaintenanceItem: (id: string) => Promise<void>;
+  completeMaintenanceItem: (id: string) => Promise<MaintenanceItem | null>;
   addRepair: (r: Omit<Repair, "id">) => Promise<Repair>;
   updateRepair: (id: string, r: Partial<Repair>) => Promise<void>;
   deleteRepair: (id: string) => void;
@@ -202,6 +211,9 @@ export function HomeWiseProvider({
   const renderedScoresRef = useRef<Record<string, PropertyScore>>({});
   const isSignedInRef = useRef(isSignedIn);
   isSignedInRef.current = isSignedIn;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const completingMaintenanceRef = useRef(false);
   // Only the first load (or post-sign-out load) shows the full-screen spinner;
   // background refreshes after saves must not blank every mounted tab.
   const hasLoadedOnceRef = useRef(false);
@@ -490,7 +502,7 @@ export function HomeWiseProvider({
       },
 
       updateMaintenanceItem: async (id, item) => {
-        const previous = state.maintenanceItems.find((m) => m.id === id);
+        const previous = stateRef.current.maintenanceItems.find((m) => m.id === id);
         setState((s) => ({
           ...s,
           maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...item } : m)),
@@ -501,7 +513,11 @@ export function HomeWiseProvider({
         await assertOnlineForWrite();
         try {
           const userId = await requireAuthUserId();
-          await maintenanceService.updateMaintenanceItem(userId, id, item);
+          const saved = await maintenanceService.updateMaintenanceItem(userId, id, item);
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
+          }));
         } catch (e) {
           if (previous) {
             setState((s) => ({
@@ -525,36 +541,97 @@ export function HomeWiseProvider({
       },
 
       completeMaintenanceItem: async (id) => {
-        const item = state.maintenanceItems.find((m) => m.id === id);
-        const previous = item ? { ...item } : null;
+        if (completingMaintenanceRef.current) {
+          console.log("[MAINTENANCE COMPLETE] skipped double tap", { id });
+          return null;
+        }
+        completingMaintenanceRef.current = true;
+
+        const item = stateRef.current.maintenanceItems.find((m) => m.id === id);
+        console.log("[MAINTENANCE COMPLETE START]", {
+          id,
+          title: item?.title,
+          recurring: item?.recurring,
+          intervalDays: item?.intervalDays,
+          status: item?.status,
+        });
+
+        if (!item) {
+          completingMaintenanceRef.current = false;
+          console.log("[MAINTENANCE COMPLETE FAILED]", { id, reason: "not_found" });
+          throw new Error("Maintenance task not found.");
+        }
+
+        const previous = { ...item };
         const lastCompleted = todayIsoDate();
-        const nextDue =
-          item?.recurring && item.intervalDays
-            ? isoDateFromTimestamp(Date.now() + item.intervalDays * 86400000)
-            : item?.nextDue ?? "";
+
+        /**
+         * Consistent completion behavior:
+         * - Always set last_completed = today (ISO).
+         * - Non-recurring → status "Completed"; next_due unchanged.
+         * - Recurring → advance next_due by intervalDays from today, keep recurring=true,
+         *   set status from the new next_due (Upcoming / Due Soon / Overdue) so the
+         *   schedule continues instead of staying Completed forever.
+         */
+        let nextDue = item.nextDue ?? "";
+        let status: MaintenanceItem["status"] = "Completed";
+
+        if (item.recurring) {
+          const interval = item.intervalDays && item.intervalDays > 0 ? item.intervalDays : 0;
+          if (interval > 0) {
+            nextDue = isoDateFromTimestamp(Date.now() + interval * 86400000);
+          }
+          status = statusFromNextDue(nextDue);
+        }
+
         const updates: Partial<MaintenanceItem> = {
-          status: item?.recurring ? "Upcoming" : "Completed",
           lastCompleted,
           nextDue,
+          status,
+          recurring: item.recurring,
         };
+
+        console.log("[MAINTENANCE COMPLETE PAYLOAD]", { id, ...updates });
+
         setState((s) => ({
           ...s,
           maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...updates } : m)),
         }));
-        const pid = item?.propertyId;
-        if (pid) bumpScore(pid);
-        if (!isSignedIn) return;
+        if (item.propertyId) bumpScore(item.propertyId);
+
         try {
-          const userId = await requireAuthUserId();
-          await maintenanceService.updateMaintenanceItem(userId, id, updates);
-        } catch (e) {
-          if (previous) {
-            setState((s) => ({
-              ...s,
-              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
-            }));
+          if (!isSignedIn) {
+            const local = { ...item, ...updates } as MaintenanceItem;
+            console.log("[MAINTENANCE COMPLETE SUCCESS]", { mode: "local", item: local });
+            return local;
           }
+
+          await assertOnlineForWrite();
+          const userId = await requireAuthUserId();
+          const saved = await maintenanceService.updateMaintenanceItem(userId, id, updates);
+
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
+          }));
+
+          console.log("[MAINTENANCE COMPLETE SUCCESS]", { id, saved });
+          // Background refresh — do not block UI or close the detail modal.
+          void refreshData().catch((e) => console.warn("[MAINTENANCE COMPLETE] refresh failed", e));
+          return saved;
+        } catch (e) {
+          console.log("[MAINTENANCE COMPLETE FAILED]", {
+            id,
+            error: e instanceof Error ? e.message : String(e),
+            code: e && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined,
+          });
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
+          }));
           throw e;
+        } finally {
+          completingMaintenanceRef.current = false;
         }
       },
 
