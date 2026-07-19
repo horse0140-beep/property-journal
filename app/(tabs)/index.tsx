@@ -1,10 +1,11 @@
 import {
-  ScrollView, Text, View, Pressable, Image, StyleSheet, RefreshControl,
+  ScrollView, Text, View, Pressable, StyleSheet, RefreshControl, Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, styles } from "@/constants/theme";
 import { useTabScrollContentStyle } from "@/constants/layout";
 import { LoadingView } from "@/components/LoadingView";
@@ -21,11 +22,15 @@ import {
   scheduleWarrantyNotifications,
 } from "@/lib/notifications";
 
+function setupDoneKey(userId: string) {
+  return `HOMEWISE_SETUP_DONE_V1:${userId}`;
+}
+
 const QUICK_ACTIONS = [
   { label: "Property Record", icon: "home-outline", section: "overview", color: "#EEF4FF" },
   { label: "Maintenance", icon: "construct-outline", section: "maintenance", color: "#FFF8EE" },
   { label: "Documents", icon: "folder-open-outline", section: "documents", color: "#F0F4FF" },
-  { label: "Photos", icon: "camera-outline", section: "photos", color: "#FFF0F0" },
+  { label: "Property Photos", icon: "camera-outline", section: "photos", color: "#FFF0F0" },
   { label: "Ask AI", icon: "sparkles-outline", route: "/ai", color: "#F5F0FF" },
 ] as const;
 
@@ -96,7 +101,9 @@ function QuickActionBtn({
 
 export default function HomeScreen() {
   const {
+    properties,
     selectedProperty,
+    selectProperty,
     maintenanceItems,
     repairs,
     documents,
@@ -112,6 +119,22 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabScrollStyle = useTabScrollContentStyle();
   const [refreshing, setRefreshing] = useState(false);
+  const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
+  const [setupHidden, setSetupHidden] = useState(true);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setSetupHidden(true);
+      return;
+    }
+    let cancelled = false;
+    AsyncStorage.getItem(setupDoneKey(user.id)).then((v) => {
+      if (!cancelled) setSetupHidden(v === "1");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // Content signatures so edits (not just adds/deletes) reschedule reminders.
   const maintenanceSignature = useMemo(
@@ -122,6 +145,35 @@ export default function HomeScreen() {
     () => documents.map((d) => `${d.id}|${d.expiresDate ?? ""}`).join(","),
     [documents]
   );
+
+  const setupChecks = useMemo(() => {
+    const pid = selectedProperty?.id;
+    return {
+      property: properties.length > 0,
+      maintenance: pid
+        ? maintenanceItems.some((m) => m.propertyId === pid)
+        : maintenanceItems.length > 0,
+      document: pid
+        ? documents.some((d) => d.propertyId === pid)
+        : documents.length > 0,
+      photo: pid ? photos.some((p) => p.propertyId === pid) : photos.length > 0,
+    };
+  }, [
+    properties.length,
+    selectedProperty?.id,
+    maintenanceItems,
+    documents,
+    photos,
+  ]);
+  const setupAllDone =
+    setupChecks.property && setupChecks.maintenance && setupChecks.document && setupChecks.photo;
+
+  useEffect(() => {
+    if (!user?.id || !setupAllDone || setupHidden) return;
+    void AsyncStorage.setItem(setupDoneKey(user.id), "1").then(() => setSetupHidden(true));
+  }, [user?.id, setupAllDone, setupHidden]);
+
+  const showSetupChecklist = Boolean(selectedProperty) && !setupHidden && !setupAllDone;
 
   // Schedule notifications whenever maintenance / doc data changes
   useEffect(() => {
@@ -392,6 +444,153 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
+        {/* ── Active property selector ─────────────────────────── */}
+        <Pressable
+          onPress={() => setPropertyPickerOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Switch property"
+          style={{
+            marginHorizontal: 16,
+            marginTop: 12,
+            marginBottom: 4,
+            backgroundColor: colors.bgCard,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            paddingHorizontal: 14,
+            paddingVertical: 14,
+          }}
+        >
+          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", marginBottom: 8 }}>
+            🏠 Current Property
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                backgroundColor: colors.bgSection,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="home" size={20} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: "800" }} numberOfLines={1}>
+                {selectedProperty.nickname || selectedProperty.address}
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
+                {[selectedProperty.address, selectedProperty.city, selectedProperty.state]
+                  .filter(Boolean)
+                  .join(", ")}
+              </Text>
+              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700", marginTop: 6 }}>
+                ▼ Switch Property
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={20} color={colors.primary} />
+          </View>
+        </Pressable>
+
+        {/* ── Home Setup checklist (auto-hides when complete) ─── */}
+        {showSetupChecklist ? (
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginTop: 12,
+              backgroundColor: colors.bgCard,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 14,
+            }}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: "800", marginBottom: 4 }}>
+              Home Setup
+            </Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 12 }}>
+              A few steps using tools you already have in HomeWise.
+            </Text>
+            {(
+              [
+                {
+                  key: "property",
+                  label: "Property Added",
+                  done: setupChecks.property,
+                  onPress: () => router.push("/(tabs)/properties"),
+                },
+                {
+                  key: "maintenance",
+                  label: "Add First Maintenance Task",
+                  done: setupChecks.maintenance,
+                  onPress: () =>
+                    router.push(`/properties/${selectedProperty.id}?section=maintenance&tab=tasks`),
+                },
+                {
+                  key: "document",
+                  label: "Upload First Document",
+                  done: setupChecks.document,
+                  onPress: () =>
+                    router.push(`/properties/${selectedProperty.id}?section=documents`),
+                },
+                {
+                  key: "photo",
+                  label: "Add First Property Photo",
+                  done: setupChecks.photo,
+                  onPress: () =>
+                    router.push(`/properties/${selectedProperty.id}?section=photos`),
+                },
+              ] as const
+            ).map((item) => (
+              <Pressable
+                key={item.key}
+                onPress={item.done ? undefined : item.onPress}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  paddingVertical: 8,
+                }}
+              >
+                <Ionicons
+                  name={item.done ? "checkmark-circle" : "ellipse-outline"}
+                  size={22}
+                  color={item.done ? colors.success : colors.textMuted}
+                />
+                <Text
+                  style={{
+                    flex: 1,
+                    color: item.done ? colors.textMuted : colors.textPrimary,
+                    fontWeight: item.done ? "600" : "700",
+                    fontSize: 14,
+                    textDecorationLine: item.done ? "line-through" : "none",
+                  }}
+                >
+                  {item.label}
+                </Text>
+                {!item.done ? (
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {/* ── Quick actions (directly below current property) ─── */}
+        <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 8 }}>
+          <Text style={styles.sectionHeader}>Quick Actions</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>
+            Jump to this property&apos;s record, maintenance, documents, and photos.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+            {QUICK_ACTIONS.map((a) => (
+              <QuickActionBtn key={a.label} {...a} propertyId={selectedProperty?.id} />
+            ))}
+          </View>
+        </View>
+
         {/* ── Property hero card ───────────────────────────────── */}
         <View style={{ margin: 16, borderRadius: 20, overflow: "hidden", backgroundColor: colors.primaryDark, minHeight: 180 }}>
           <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(10,25,60,0.72)" }} />
@@ -494,16 +693,6 @@ export default function HomeScreen() {
               </Pressable>
             ))}
           </ScrollView>
-        </View>
-
-        {/* ── Quick actions ────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-          <Text style={styles.sectionHeader}>Quick Actions</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-            {QUICK_ACTIONS.map((a) => (
-              <QuickActionBtn key={a.label} {...a} propertyId={selectedProperty?.id} />
-            ))}
-          </View>
         </View>
 
         {/* ── Upcoming tasks + Alerts (stacked to avoid overflow) ── */}
@@ -693,18 +882,21 @@ export default function HomeScreen() {
         {/* ── Recent Photos ─────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 16 }}>
           <View style={styles.sectionLabelRow}>
-            <Text style={styles.sectionHeader}>Recent Photos</Text>
+            <Text style={styles.sectionHeader}>Property Photos</Text>
             <Pressable onPress={() => router.push(`/properties/${propertyId}?section=photos`)}>
               <Text style={styles.viewAllText}>View All</Text>
             </Pressable>
           </View>
+          <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>
+            Exterior · Interior · Repairs · Projects
+          </Text>
           {propPhotos.length === 0 ? (
             <View style={{ backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 20, alignItems: "center" }}>
               <Ionicons name="images-outline" size={32} color={colors.textMuted} />
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>No photos yet</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 8 }}>No property photos yet.</Text>
               <Pressable onPress={() => router.push(`/properties/${propertyId}?section=photos`)}
                 style={{ marginTop: 10, backgroundColor: colors.bgSection, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>View Photos</Text>
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Add Property Photo</Text>
               </Pressable>
             </View>
           ) : (
@@ -725,6 +917,90 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
+
+      <Modal
+        visible={propertyPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPropertyPickerOpen(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(15,31,61,0.45)", justifyContent: "flex-end" }}
+          onPress={() => setPropertyPickerOpen(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: colors.bgCard,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingBottom: insets.bottom + 16,
+              maxHeight: "70%",
+            }}
+          >
+            <View style={{ alignItems: "center", paddingVertical: 10 }}>
+              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border }} />
+            </View>
+            <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "900", paddingHorizontal: 20, marginBottom: 8 }}>
+              Switch Property
+            </Text>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+              {properties.map((p) => {
+                const active = p.id === selectedProperty.id;
+                return (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => {
+                      selectProperty(p.id);
+                      setPropertyPickerOpen(false);
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                      paddingVertical: 14,
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      marginBottom: 8,
+                      backgroundColor: active ? colors.bgSection : "transparent",
+                      borderWidth: 1,
+                      borderColor: active ? colors.primary : colors.border,
+                    }}
+                  >
+                    <Ionicons
+                      name={active ? "checkmark-circle" : "home-outline"}
+                      size={22}
+                      color={active ? colors.primary : colors.textMuted}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textPrimary, fontWeight: "800", fontSize: 15 }}>
+                        {p.nickname || p.address}
+                      </Text>
+                      <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                        {p.address}
+                        {p.city ? ` · ${p.city}, ${p.state}` : ""}
+                      </Text>
+                    </View>
+                    {active ? (
+                      <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 11 }}>ACTIVE</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => {
+                  setPropertyPickerOpen(false);
+                  router.push("/(tabs)/properties");
+                }}
+                style={[styles.primaryButton, { marginTop: 4 }]}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={styles.primaryButtonText}>+ Add Property</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

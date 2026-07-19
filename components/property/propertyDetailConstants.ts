@@ -30,7 +30,7 @@ export const PROPERTY_SECTIONS: {
   { key: "maintenance", label: "Maintenance", icon: "construct-outline", addLabel: "Add Task" },
   { key: "paint", label: "Paint", icon: "color-palette-outline", addLabel: "Add Paint Record" },
   { key: "documents", label: "Documents", icon: "folder-open-outline", addLabel: "Add Document" },
-  { key: "photos", label: "Photos", icon: "images-outline", addLabel: "Add Photo" },
+  { key: "photos", label: "Property Photos", icon: "images-outline", addLabel: "Add Photo" },
   { key: "contractors", label: "Contractors", icon: "people-outline", addLabel: "Add Contractor" },
 ];
 

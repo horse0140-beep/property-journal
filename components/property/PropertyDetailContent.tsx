@@ -892,7 +892,14 @@ export default function PropertyDetailContent({
         </View>
         {maintenanceView === "appliances" ? (
           propAppliances.length === 0 ? (
-            <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No appliances recorded.</Text>
+            <View style={{ alignItems: "center", paddingVertical: 16 }}>
+              <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+                No appliances recorded.
+              </Text>
+              <Pressable style={styles.primaryButton} onPress={() => openAdd("appliance")}>
+                <Text style={styles.primaryButtonText}>Add Appliance</Text>
+              </Pressable>
+            </View>
           ) : (
             propAppliances.map((a) => (
               <Card key={a.id} style={{ marginBottom: 10 }}>
@@ -923,7 +930,14 @@ export default function PropertyDetailContent({
           )
         ) : maintenanceView === "tasks" ? (
           maint.length === 0 ? (
-            <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No maintenance tasks yet.</Text>
+            <View style={{ alignItems: "center", paddingVertical: 16 }}>
+              <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+                No maintenance tasks yet.
+              </Text>
+              <Pressable style={styles.primaryButton} onPress={() => openAdd("maintenance")}>
+                <Text style={styles.primaryButtonText}>Add Maintenance Task</Text>
+              </Pressable>
+            </View>
           ) : (
             maint.map((item) => (
               <Pressable
@@ -954,7 +968,14 @@ export default function PropertyDetailContent({
             ))
           )
         ) : propRepairs.length === 0 ? (
-          <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No repairs logged yet.</Text>
+          <View style={{ alignItems: "center", paddingVertical: 16 }}>
+            <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+              No repairs recorded.
+            </Text>
+            <Pressable style={styles.primaryButton} onPress={() => openAdd("repair")}>
+              <Text style={styles.primaryButtonText}>Log Repair</Text>
+            </Pressable>
+          </View>
         ) : (
           propRepairs.map((r) => (
             <Pressable
@@ -1025,7 +1046,14 @@ export default function PropertyDetailContent({
         );
       case "documents":
         return propDocs.length === 0 ? (
-          <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No documents uploaded.</Text>
+          <View style={{ alignItems: "center", paddingVertical: 16 }}>
+            <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+              No documents yet.
+            </Text>
+            <Pressable style={styles.primaryButton} onPress={() => openAdd("document")}>
+              <Text style={styles.primaryButtonText}>Upload Document</Text>
+            </Pressable>
+          </View>
         ) : (
           propDocs.map((d) => (
             <DocumentCard key={d.id} document={d} onPress={setViewDocument} />
@@ -1038,10 +1066,17 @@ export default function PropertyDetailContent({
               Property Photos
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 12 }}>
-              View exterior, interior, repair, and project photos.
+              Exterior · Interior · Repairs · Projects
             </Text>
             {propPhotos.length === 0 ? (
-              <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No photos yet.</Text>
+              <View style={{ alignItems: "center", paddingVertical: 16 }}>
+                <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+                  No property photos yet.
+                </Text>
+                <Pressable style={styles.primaryButton} onPress={() => openAdd("photo")}>
+                  <Text style={styles.primaryButtonText}>Add Property Photo</Text>
+                </Pressable>
+              </View>
             ) : (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                 {propPhotos.map((ph) => (

@@ -308,7 +308,25 @@ export default function ProfileScreen() {
   return (
     <Screen noPad tabScreen>
       <TabScreenHeader>
-        <Text style={styles.tabHeaderTitle}>Profile</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={styles.tabHeaderTitle}>Profile</Text>
+          <Pressable
+            onPress={() => router.push("/settings")}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            hitSlop={8}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: colors.bgSection,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="settings-outline" size={20} color={colors.primary} />
+          </Pressable>
+        </View>
       </TabScreenHeader>
 
       <ScrollView contentContainerStyle={tabScrollStyle}>
@@ -695,6 +713,11 @@ export default function ProfileScreen() {
               icon="star-outline"
               label="Premium Features"
               onPress={() => router.push("/features")}
+            />
+            <Row
+              icon="settings-outline"
+              label="Settings"
+              onPress={() => router.push("/settings")}
             />
             <Row
               icon="person-outline"

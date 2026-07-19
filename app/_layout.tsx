@@ -1,20 +1,24 @@
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { HomeWiseProvider } from "@/context/HomeWiseContext";
+import { HomeWiseProvider, useHomeWise } from "@/context/HomeWiseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { UpgradeProvider } from "@/context/UpgradeContext";
+import { OfflineProvider, useOffline } from "@/context/OfflineContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { OfflineBanner } from "@/components/OfflineBanner";
 import { colors } from "@/constants/theme";
 import { setupNotificationListeners } from "@/lib/notifications";
 import { isAuthCallbackUrl, isRecoveryUrl } from "@/lib/authSessionFromUrl";
+import { extractShareTokenFromUrl } from "@/lib/shareUrl";
 import { supportsRemotePush } from "@/lib/expoRuntime";
 import { registerPushToken, subscribePushTokenChanges } from "@/services/pushService";
+import { supabase } from "@/lib/supabase";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
@@ -86,6 +90,12 @@ function NotificationBootstrap() {
 function DeepLinkHandler() {
   useEffect(() => {
     function handleUrl(url: string) {
+      const shareToken = extractShareTokenFromUrl(url);
+      if (shareToken) {
+        router.replace({ pathname: "/share/[token]", params: { token: shareToken } });
+        return;
+      }
+
       if (!isAuthCallbackUrl(url)) return;
 
       // Pass the URL through params — on warm starts getInitialURL() is stale
@@ -109,19 +119,49 @@ function DeepLinkHandler() {
   return null;
 }
 
+function ConnectivityRefresh() {
+  const { isOffline } = useOffline();
+  const { isSignedIn } = useAuth();
+  const { refreshData } = useHomeWise();
+  const wasOffline = useRef(false);
+
+  useEffect(() => {
+    if (isOffline) {
+      wasOffline.current = true;
+      return;
+    }
+    if (!wasOffline.current || !isSignedIn) return;
+    wasOffline.current = false;
+    // Connection restored — refresh session then property data.
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        // Trigger auth state listeners / profile refresh via getUser path.
+        void supabase.auth.getUser().catch(() => {});
+      }
+      void refreshData();
+    });
+  }, [isOffline, isSignedIn, refreshData]);
+
+  return null;
+}
+
 function AppProviders({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
   return (
-    <SubscriptionProvider>
-      <UpgradeProvider>
-        <HomeWiseProvider isSignedIn={isSignedIn}>
-          <NotificationBootstrap />
-          <DeepLinkHandler />
-          {children}
-          <UpgradeModal />
-        </HomeWiseProvider>
-      </UpgradeProvider>
-    </SubscriptionProvider>
+    <OfflineProvider>
+      <SubscriptionProvider>
+        <UpgradeProvider>
+          <HomeWiseProvider isSignedIn={isSignedIn}>
+            <NotificationBootstrap />
+            <DeepLinkHandler />
+            <ConnectivityRefresh />
+            <OfflineBanner />
+            {children}
+            <UpgradeModal />
+          </HomeWiseProvider>
+        </UpgradeProvider>
+      </SubscriptionProvider>
+    </OfflineProvider>
   );
 }
 
@@ -153,6 +193,7 @@ export default function RootLayout() {
               <Stack.Screen name="share" options={{ animation: "fade" }} />
               <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="score" options={{ animation: "slide_from_right" }} />
+              <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
             </Stack>
           </AuthGate>
         </AppProviders>
