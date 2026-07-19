@@ -16,12 +16,15 @@ import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import {
-  buildShareUrl,
+  buildShareMessage,
   createPropertyShare,
   fetchPropertyShares,
+  isShareConfigured,
   revokePropertyShare,
+  SHARE_NOT_CONFIGURED_MESSAGE,
   updatePropertyShare,
 } from "@/services/sharingService";
+import { logShareUrlConfig } from "@/lib/shareUrl";
 import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
 
@@ -51,7 +54,13 @@ export default function PropertySharingScreen() {
     }
   }, [user?.id]);
 
-  useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    logShareUrlConfig();
+    setLoading(true);
+    load();
+  }, [load]));
+
+  const shareConfigured = isShareConfigured();
 
   function openCreate() {
     if (!selectedProperty) {
@@ -119,11 +128,15 @@ export default function PropertySharingScreen() {
   }
 
   async function shareLink(share: PropertyShare) {
-    const url = buildShareUrl(share.share_token);
-    await Share.share({
-      message: `View my HomeWise property history: ${url}\n\nToken: ${share.share_token}`,
-      title: share.label,
-    });
+    const message = buildShareMessage(
+      share.share_token,
+      `View my HomeWise property history for ${share.property_label}.`
+    );
+    if (!message) {
+      Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
+      return;
+    }
+    await Share.share({ message, title: share.label });
   }
 
   function confirmDelete(share: PropertyShare) {
@@ -158,6 +171,15 @@ export default function PropertySharingScreen() {
           backTo="/features"
           rightAction={{ label: "+ New", onPress: openCreate }}
         />
+
+        {!shareConfigured ? (
+          <View style={{ marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B" }}>
+            <Text style={{ color: "#92400E", fontWeight: "700" }}>{SHARE_NOT_CONFIGURED_MESSAGE}</Text>
+            <Text style={{ color: "#92400E", marginTop: 4, fontSize: 12 }}>
+              Set EXPO_PUBLIC_SHARE_BASE_URL to your deployed web app (e.g. https://your-domain.com/share) before sharing links.
+            </Text>
+          </View>
+        ) : null}
 
         {loading ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

@@ -29,6 +29,7 @@ import { useUpgrade } from "@/context/UpgradeContext";
 import type { Document } from "@/context/HomeWiseContext";
 import { fileExists } from "@/lib/fileUtils";
 import { logDocumentCardTap, resolveDocumentUrl } from "@/lib/documentUtils";
+import { openExternalUrl } from "@/lib/openExternalUrl";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
 import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
@@ -184,12 +185,7 @@ export default function VaultScreen() {
 
     if (isRemoteUri(url)) {
       try {
-        const supported = await Linking.canOpenURL(url);
-        if (!supported) {
-          Alert.alert("Cannot Open", "This file cannot be opened on this device.");
-          return;
-        }
-        await Linking.openURL(url);
+        await openExternalUrl(url);
       } catch (e) {
         Alert.alert("Open Failed", e instanceof Error ? e.message : "Could not open file.");
       }

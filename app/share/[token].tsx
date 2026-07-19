@@ -19,7 +19,8 @@ type Snapshot = {
 };
 
 export default function SharedPropertyScreen() {
-  const { token } = useLocalSearchParams<{ token: string }>();
+  const { token: tokenParam } = useLocalSearchParams<{ token: string | string[] }>();
+  const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
   const [share, setShare] = useState<PropertyShare | null>(null);
   const [loading, setLoading] = useState(true);
   const [invalid, setInvalid] = useState(false);
@@ -53,9 +54,9 @@ export default function SharedPropertyScreen() {
       <Screen>
         <View style={styles.emptyState}>
           <Ionicons name="link-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyStateTitle}>Link unavailable</Text>
+          <Text style={styles.emptyStateTitle}>Share not found or expired</Text>
           <Text style={styles.emptyStateText}>
-            This share link may have expired or been revoked.
+            This link may have been revoked, expired, or entered incorrectly. Ask the property owner for a new link.
           </Text>
         </View>
       </Screen>

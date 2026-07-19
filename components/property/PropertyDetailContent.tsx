@@ -960,9 +960,9 @@ export default function PropertyDetailContent({
                       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </View>
                   </View>
-                  <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
-                    Tap to view notes or edit
-                  </Text>
+              <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
+                View details
+              </Text>
                 </Card>
               </Pressable>
             ))
@@ -997,7 +997,7 @@ export default function PropertyDetailContent({
                 </Text>
                 <RepairPhotoStrip urls={r.photoUris ?? []} />
                 <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
-                  Tap to view or edit
+                  View details
                 </Text>
               </Card>
             </Pressable>

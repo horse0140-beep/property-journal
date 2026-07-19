@@ -37,10 +37,10 @@ export async function fetchPropertyShares(userId: string): Promise<PropertyShare
 }
 
 export async function fetchPropertyShareByToken(token: string): Promise<PropertyShare | null> {
-  // Security definer RPC (migration 026): the token-less public SELECT policy
-  // was removed, so viewers can only fetch the single share for a known token.
-  // The RPC also handles active/expiry checks and increments views_count.
-  const { data, error } = await supabase.rpc("get_share_by_token", { p_token: token });
+  const trimmed = token?.trim();
+  if (!trimmed) return null;
+
+  const { data, error } = await supabase.rpc("get_share_by_token", { p_token: trimmed });
 
   if (error) {
     logTechnicalError("fetchPropertyShareByToken", error);
@@ -99,7 +99,5 @@ export async function deletePropertyShare(id: string) {
   assertNoError("sharing_revoke", error, "sharing_revoke");
 }
 
-export function buildShareUrl(token: string): string {
-  const base = process.env.EXPO_PUBLIC_SHARE_BASE_URL ?? "https://homewise.app/share";
-  return `${base}/${token}`;
-}
+// URL helpers live in lib/shareUrl.ts (single source of truth).
+export { buildShareUrl, buildShareMessage, isShareConfigured, SHARE_NOT_CONFIGURED_MESSAGE } from "@/lib/shareUrl";

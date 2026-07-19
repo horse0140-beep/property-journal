@@ -124,16 +124,33 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     const asset = result.assets[0];
     await ensureDir(DOC_DIR);
 
-    const ext = asset.name.split(".").pop() ?? "pdf";
+    const mime = asset.mimeType ?? "application/pdf";
+    let ext = "pdf";
+    if (asset.name && /\.[a-zA-Z0-9]{1,5}$/.test(asset.name)) {
+      ext = asset.name.split(".").pop()!.toLowerCase();
+    } else if (mime.includes("pdf")) {
+      ext = "pdf";
+    } else if (mime.includes("png")) {
+      ext = "png";
+    } else if (mime.includes("jpeg") || mime.includes("jpg")) {
+      ext = "jpg";
+    } else if (mime.includes("webp")) {
+      ext = "webp";
+    } else if (mime.includes("wordprocessingml") || mime.includes("docx")) {
+      ext = "docx";
+    } else if (mime.includes("msword")) {
+      ext = "doc";
+    }
+
     const filename = `doc_${Date.now()}.${ext}`;
     const dest = `${DOC_DIR}${filename}`;
     await FileSystem.copyAsync({ from: asset.uri, to: dest });
 
     return {
       uri: dest,
-      name: asset.name,
+      name: asset.name?.includes(".") ? asset.name : `document.${ext}`,
       size: asset.size,
-      mimeType: asset.mimeType ?? "application/pdf",
+      mimeType: mime,
       formattedSize: formatBytes(asset.size ?? 0),
     };
   } catch (e) {

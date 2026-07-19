@@ -72,7 +72,50 @@ const MIME_BY_EXT: Record<string, string> = {
 function extensionFromUri(uri: string, fallback = "jpg"): string {
   const clean = uri.split("?")[0];
   const match = clean.match(/\.([a-zA-Z0-9]+)$/);
-  return match?.[1]?.toLowerCase() ?? fallback;
+  const ext = match?.[1]?.toLowerCase();
+  // Reject nonsense "extensions" from names like "My Receipt" (no real dot-ext).
+  if (!ext || ext.length > 5 || /\s/.test(ext)) return fallback;
+  return ext;
+}
+
+function extensionFromMime(mimeType?: string): string | null {
+  if (!mimeType) return null;
+  const lower = mimeType.toLowerCase();
+  if (lower.includes("pdf")) return "pdf";
+  if (lower.includes("jpeg") || lower.includes("jpg")) return "jpg";
+  if (lower.includes("png")) return "png";
+  if (lower.includes("webp")) return "webp";
+  if (lower.includes("heic")) return "heic";
+  if (lower.includes("gif")) return "gif";
+  if (lower.includes("wordprocessingml") || lower.endsWith("docx")) return "docx";
+  if (lower === "application/msword" || lower.endsWith("doc")) return "doc";
+  return null;
+}
+
+/** Safe storage object name: no spaces, always has a real file extension. */
+export function buildStorageObjectName(
+  localUri: string,
+  preferredName?: string,
+  mimeType?: string
+): string {
+  const ext =
+    extensionFromMime(mimeType) ??
+    extensionFromUri(localUri, preferredName ? extensionFromUri(preferredName, "bin") : "bin");
+
+  const rawBase = (preferredName ?? "")
+    .split(/[/\\]/)
+    .pop()
+    ?.replace(/\.[^.]+$/, "")
+    ?.trim();
+
+  const slug = (rawBase || `file_${Date.now()}`)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+
+  const base = slug || `file_${Date.now()}`;
+  return `${base}_${Date.now().toString(36)}.${ext}`;
 }
 
 function guessContentType(uri: string, mimeType?: string): string {
@@ -309,7 +352,8 @@ export async function uploadLocalFile(
   bucket: StorageBucket,
   localUri: string,
   fileName?: string,
-  onProgress?: UploadProgressCallback
+  onProgress?: UploadProgressCallback,
+  mimeType?: string
 ): Promise<UploadedFile> {
   if (!userId) throw new Error("You must be signed in to upload files.");
   if (!localUri) throw new Error("No file selected.");
@@ -322,10 +366,9 @@ export async function uploadLocalFile(
 
   reportProgress(onProgress, "uploading", 45);
 
-  const ext = extensionFromUri(localUri);
-  const safeName = fileName ?? `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const safeName = buildStorageObjectName(localUri, fileName, mimeType);
   const path = `${userId}/${safeName}`;
-  const contentType = guessContentType(localUri);
+  const contentType = guessContentType(localUri, mimeType);
 
   const uploadRequest = { bucket, path, contentType, userId, localUri };
   auditPipelineStep(4, uploadRequest);
@@ -392,12 +435,13 @@ export async function uploadLocalFileIfNeeded(
   bucket: StorageBucket,
   uri: string | undefined,
   fileName?: string,
-  onProgress?: UploadProgressCallback
+  onProgress?: UploadProgressCallback,
+  mimeType?: string
 ): Promise<string | undefined> {
   if (!uri) return undefined;
   if (isRemoteUri(uri)) return uri;
 
-  const uploaded = await uploadLocalFile(userId, bucket, uri, fileName, onProgress);
+  const uploaded = await uploadLocalFile(userId, bucket, uri, fileName, onProgress, mimeType);
   return uploaded.url;
 }
 

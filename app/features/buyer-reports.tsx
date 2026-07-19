@@ -16,9 +16,11 @@ import { useHomeWise } from "@/context/HomeWiseContext";
 import { generateHomeHistoryPDF, sharePDF } from "@/lib/pdfGenerator";
 import { parseCostNumber } from "@/lib/dbSanitize";
 import {
-  buildShareUrl,
+  buildShareMessage,
   createPropertyShare,
   fetchPropertyShares,
+  isShareConfigured,
+  SHARE_NOT_CONFIGURED_MESSAGE,
 } from "@/services/sharingService";
 import type { PropertyShare } from "@/types/premium";
 
@@ -102,6 +104,10 @@ export default function BuyerReportsScreen() {
 
   async function handleCreateBuyerLink() {
     if (!user?.id) return;
+    if (!isShareConfigured()) {
+      Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
+      return;
+    }
     setCreatingLink(true);
     try {
       const share = await createPropertyShare(user.id, {
@@ -123,11 +129,15 @@ export default function BuyerReportsScreen() {
         },
       });
 
-      const url = buildShareUrl(share.share_token);
-      await Share.share({
-        message: `HomeWise Buyer Report for ${property.address}\n\nView the complete home history (no personal info):\n${url}`,
-        title: "HomeWise Buyer Report",
-      });
+      const message = buildShareMessage(
+        share.share_token,
+        `HomeWise Buyer Report for ${property.address}\n\nView the complete home history (no personal info):`
+      );
+      if (!message) {
+        Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
+        return;
+      }
+      await Share.share({ message, title: "HomeWise Buyer Report" });
       await load();
     } catch (e: any) {
       Alert.alert("Error", e.message);

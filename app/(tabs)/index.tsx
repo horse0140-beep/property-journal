@@ -448,7 +448,7 @@ export default function HomeScreen() {
         <Pressable
           onPress={() => setPropertyPickerOpen(true)}
           accessibilityRole="button"
-          accessibilityLabel="Switch property"
+          accessibilityLabel="Property selector — tap to switch"
           style={{
             marginHorizontal: 16,
             marginTop: 12,
@@ -461,8 +461,19 @@ export default function HomeScreen() {
             paddingVertical: 14,
           }}
         >
-          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", marginBottom: 8 }}>
-            🏠 Current Property
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: 11,
+              fontWeight: "800",
+              letterSpacing: 0.8,
+              marginBottom: 8,
+            }}
+          >
+            PROPERTY SELECTOR
+          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>
+            Current Property
           </Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <View
@@ -479,7 +490,7 @@ export default function HomeScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: "800" }} numberOfLines={1}>
-                {selectedProperty.nickname || selectedProperty.address}
+                🏠 {selectedProperty.nickname || selectedProperty.address}
               </Text>
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
                 {[selectedProperty.address, selectedProperty.city, selectedProperty.state]
@@ -487,7 +498,7 @@ export default function HomeScreen() {
                   .join(", ")}
               </Text>
               <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700", marginTop: 6 }}>
-                ▼ Switch Property
+                Tap to switch
               </Text>
             </View>
             <Ionicons name="chevron-down" size={20} color={colors.primary} />

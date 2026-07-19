@@ -833,8 +833,21 @@ export function HomeWiseProvider({
               );
             }
 
-            // STEP 5 — upload
-            const uploaded = await uploadLocalFile(userId, bucket, d.fileUri, title || undefined);
+            // STEP 5 — upload (never use raw title as object key — spaces / no extension break Android)
+            const mimeHint =
+              d.fileType === "pdf"
+                ? "application/pdf"
+                : d.fileType === "image"
+                  ? "image/jpeg"
+                  : undefined;
+            const uploaded = await uploadLocalFile(
+              userId,
+              bucket,
+              d.fileUri,
+              title || undefined,
+              undefined,
+              mimeHint
+            );
             console.log("[DOCUMENT STEP 5] upload response", uploaded.uploadResponse);
 
             // STEP 6 — storage path

@@ -1,7 +1,6 @@
 import {
   Alert,
   Image,
-  Linking,
   Platform,
   Pressable,
   Share,
@@ -12,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { KeyboardModal } from "@/components/KeyboardModal";
 import { colors, styles } from "@/constants/theme";
 import { formatDateForDisplay } from "@/lib/dateForDatabase";
+import { openExternalUrl } from "@/lib/openExternalUrl";
 import type { Document } from "@/data/demoData";
 import {
   hasDocumentPreviewUrl,
@@ -59,12 +59,7 @@ export function DocumentViewerModal({
     }
 
     try {
-      const supported = await Linking.canOpenURL(resolvedUrl);
-      if (!supported) {
-        Alert.alert("Cannot Open", "This file cannot be opened on this device.");
-        return;
-      }
-      await Linking.openURL(resolvedUrl);
+      await openExternalUrl(resolvedUrl);
     } catch (e) {
       Alert.alert("Open Failed", e instanceof Error ? e.message : "Could not open file.");
     }
