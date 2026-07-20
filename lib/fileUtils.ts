@@ -2,6 +2,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Alert } from "react-native";
+import { logDocAudit, redactUri } from "@/lib/documentUploadLog";
 
 const PHOTO_DIR = `${FileSystem.documentDirectory}homewise/photos/`;
 const DOC_DIR = `${FileSystem.documentDirectory}homewise/documents/`;
@@ -124,11 +125,12 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     if (result.canceled || !result.assets?.length) return null;
 
     const asset = result.assets[0];
-    console.log("[DOCUMENT STEP 1] picker result", {
+    logDocAudit(2, {
       name: asset.name,
-      uri: asset.uri,
       size: asset.size,
       mimeType: asset.mimeType,
+      uri: redactUri(asset.uri),
+      copyToCacheDirectory: true,
     });
     await ensureDir(DOC_DIR);
 

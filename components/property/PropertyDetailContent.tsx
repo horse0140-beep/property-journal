@@ -27,6 +27,7 @@ import { useHomeWise } from "@/context/HomeWiseContext";
 import type { MaintenanceItem, Property } from "@/context/HomeWiseContext";
 import type { Contractor, Document } from "@/data/demoData";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
+import { showDocumentAuditError, logDocAudit, redactUri } from "@/lib/documentUploadLog";
 import { showMaintenanceSaveError, showRepairSaveError } from "@/lib/maintenanceRepairSave";
 import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
@@ -657,6 +658,7 @@ export default function PropertyDetailContent({
             showUpgrade("cloud_backup");
             return;
           }
+          logDocAudit(1, { screen: "property", title: docForm.title, category: docForm.category });
           saved = await addDocument({
             ...docForm,
             propertyId: pid,
@@ -685,7 +687,10 @@ export default function PropertyDetailContent({
 
       if (saved !== undefined) {
         logSaveSuccessEvent("property", action, saved);
-        await refreshData().catch(() => {});
+        const isDocumentSave = activeModal === "document";
+        if (isDocumentSave) {
+          logDocAudit(16, { id: (saved as { id?: string }).id });
+        }
         if (activeModal === "photo") {
           setSection("photos");
           setPhotoSavePhase("saved");
@@ -697,6 +702,24 @@ export default function PropertyDetailContent({
           setModal(null);
           resetForms();
         }
+        try {
+          await refreshData();
+          if (isDocumentSave) logDocAudit(17, { ok: true });
+        } catch (refreshErr) {
+          if (isDocumentSave) {
+            logDocAudit(17, {
+              ok: false,
+              error: refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
+            });
+            Alert.alert(
+              "Saved",
+              "Document uploaded, but the list could not refresh. Pull to refresh."
+            );
+          }
+        }
+        if (isDocumentSave) {
+          logDocAudit(18, { id: (saved as { id?: string }).id });
+        }
       }
     } catch (e) {
       if (activeModal === "photo") {
@@ -706,6 +729,8 @@ export default function PropertyDetailContent({
         showMaintenanceSaveError(action, e);
       } else if (activeModal === "repair") {
         showRepairSaveError(action, e);
+      } else if (activeModal === "document") {
+        showDocumentAuditError(e);
       } else {
         const errorScreen =
           activeModal === "appliance"
@@ -714,11 +739,9 @@ export default function PropertyDetailContent({
               ? "paint"
               : activeModal === "contractor"
                 ? "contractor"
-                : activeModal === "document"
-                  ? "vault"
-                  : activeModal === "photo"
-                    ? "photos"
-                    : "maintenance";
+                : activeModal === "photo"
+                  ? "photos"
+                  : "maintenance";
         showRealSaveError(errorScreen, action, e);
       }
     } finally {
@@ -734,6 +757,12 @@ export default function PropertyDetailContent({
     try {
       const result = await picker();
       if (result) {
+        logDocAudit(2, {
+          name: result.name,
+          fileType: result.fileType,
+          formattedSize: result.formattedSize,
+          uri: redactUri(result.localUri),
+        });
         setPickedFileName(result.name);
         setDocForm((f) => ({
           ...f,

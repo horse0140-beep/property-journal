@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "@/lib/supabase";
 import { showRealSaveError } from "@/lib/realSaveError";
 import { auditPipelineStep, auditUpload } from "@/lib/photoUploadAudit";
+import { logDocAudit, redactUri } from "@/lib/documentUploadLog";
 import {
   pickDocument,
   pickImageFromLibrary,
@@ -400,8 +401,11 @@ export async function uploadLocalFile(
   localUri: string,
   fileName?: string,
   onProgress?: UploadProgressCallback,
-  mimeType?: string
+  mimeType?: string,
+  options?: { documentAudit?: boolean }
 ): Promise<UploadedFile> {
+  const audit = Boolean(options?.documentAudit);
+
   if (!userId) throw new Error("You must be signed in to upload files.");
   if (!localUri) throw new Error("No file selected.");
 
@@ -433,7 +437,11 @@ export async function uploadLocalFile(
     throw new Error(`Unsupported MIME type for upload: ${contentType}`);
   }
 
-  const uploadRequest = { bucket, path, contentType, userId, localUri, size: fileCheck.size };
+  if (audit) {
+    logDocAudit(8, { bucket, storagePath: path, uri: redactUri(localUri) });
+  }
+
+  const uploadRequest = { bucket, path, contentType, userId, size: fileCheck.size };
   auditPipelineStep(4, uploadRequest);
   auditUpload("uploadRequest", uploadRequest);
 
@@ -441,11 +449,23 @@ export async function uploadLocalFile(
   if (!byteLength) {
     throw new Error("Upload body is empty (0 bytes) after reading local file.");
   }
+  if (audit) {
+    logDocAudit(9, {
+      byteLength,
+      sizeOnDisk,
+      contentType,
+      method: "FileSystem.readAsStringAsync(base64)→ArrayBuffer→Uint8Array",
+      uri: redactUri(localUri),
+    });
+  }
   console.log("[UPLOAD] file body ready", { byteLength, sizeOnDisk, contentType, path, bucket });
 
   reportProgress(onProgress, "uploading", 70);
 
-  // Uint8Array is more reliable than ArrayBuffer for RN Supabase storage uploads.
+  if (audit) {
+    logDocAudit(10, { bucket, path, contentType, byteLength, upsert: true });
+  }
+
   const uploadBytes = new Uint8Array(fileBody);
   const { data: uploadData, error } = await supabase.storage.from(bucket).upload(path, uploadBytes, {
     contentType,
@@ -454,6 +474,11 @@ export async function uploadLocalFile(
 
   auditPipelineStep(5, error ? { error: error.message, ...error } : uploadData);
   auditUpload("uploadResponse", error ?? uploadData);
+  if (audit) {
+    logDocAudit(11, error
+      ? { errorCode: (error as { statusCode?: string }).statusCode, errorMessage: error.message, error }
+      : { uploadData, path });
+  }
 
   if (error) throw wrapStorageError(error);
 
@@ -470,7 +495,7 @@ export async function uploadLocalFile(
   if (isPublic && url) {
     const check = await verifyImageUrlHttp200(url);
     if (!check.ok) {
-      console.warn("[UPLOAD] public URL verify failed (non-fatal for private fallback already applied):", check);
+      console.warn("[UPLOAD] public URL verify failed (non-fatal):", check);
     }
   }
 
