@@ -1,9 +1,10 @@
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
+import * as SplashScreen from "expo-splash-screen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { HomeWiseProvider, useHomeWise } from "@/context/HomeWiseContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -12,13 +13,31 @@ import { UpgradeProvider } from "@/context/UpgradeContext";
 import { OfflineProvider, useOffline } from "@/context/OfflineContext";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { OfflineBanner } from "@/components/OfflineBanner";
-import { colors } from "@/constants/theme";
 import { setupNotificationListeners } from "@/lib/notifications";
 import { isAuthCallbackUrl, isRecoveryUrl } from "@/lib/authSessionFromUrl";
 import { extractShareTokenFromUrl } from "@/lib/shareUrl";
 import { supportsRemotePush } from "@/lib/expoRuntime";
 import { registerPushToken, subscribePushTokenChanges } from "@/services/pushService";
 import { supabase } from "@/lib/supabase";
+
+/** Deep navy — must match app.json splash.backgroundColor to avoid flash. */
+const SPLASH_BG = "#0F2460";
+
+// Keep the native splash up until auth bootstrap finishes (hide once).
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+function SplashController() {
+  const { isLoaded } = useAuth();
+  const hidden = useRef(false);
+
+  useEffect(() => {
+    if (!isLoaded || hidden.current) return;
+    hidden.current = true;
+    SplashScreen.hideAsync().catch(() => {});
+  }, [isLoaded]);
+
+  return null;
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
@@ -51,11 +70,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }, [isLoaded, isSignedIn, segments]);
 
   if (!isLoaded) {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    // Native splash still visible — keep matching navy so no white flash if it hides early.
+    return <View style={{ flex: 1, backgroundColor: SPLASH_BG }} />;
   }
 
   return <>{children}</>;
@@ -169,6 +185,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
+        <SplashController />
         <StatusBar style="dark" />
         <AppProviders>
           <AuthGate>

@@ -9,8 +9,8 @@
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "cover",
+      "image": "./assets/property-journal-splash.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0F2460"
     },
     "ios": {
@@ -52,9 +52,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash.png",
-          "resizeMode": "cover",
-          "backgroundColor": "#0F2460"
+          "image": "./assets/property-journal-splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0F2460",
+          "imageWidth": 280
         }
       ],
       [
