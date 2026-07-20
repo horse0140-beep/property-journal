@@ -31,8 +31,7 @@ import { fileExists } from "@/lib/fileUtils";
 import { logDocumentCardTap, resolveDocumentUrl } from "@/lib/documentUtils";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
-import { showDocumentAuditError, logDocAudit, redactUri } from "@/lib/documentUploadLog";
-import { formatDateForDisplay } from "@/lib/dateForDatabase";
+import { formatDateForDisplay, todayIsoDate } from "@/lib/dateForDatabase";
 import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 import { matchesPropertyId, normalizeDocumentCategory } from "@/types/database";
 import { TabScreenHeader } from "@/components/TabScreenHeader";
@@ -87,7 +86,7 @@ const EMPTY_FORM: Omit<Document, "id"> = {
   category: "other",
   fileType: "pdf",
   fileSize: "—",
-  uploadDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+  uploadDate: todayIsoDate(),
   notes: "",
   tags: [],
   expiresDate: "",
@@ -143,13 +142,6 @@ export default function VaultScreen() {
     try {
       const result = await picker();
       if (result) {
-        logDocAudit(2, {
-          name: result.name,
-          mimeType: result.mimeType,
-          fileType: result.fileType,
-          formattedSize: result.formattedSize,
-          uri: redactUri(result.localUri),
-        });
         setPickedFileName(result.name);
         setF("fileUri", result.localUri);
         setF("fileSize", result.formattedSize);
@@ -249,8 +241,6 @@ export default function VaultScreen() {
   async function save() {
     if (savingRef.current || saving) return;
 
-    logDocAudit(1, { screen: "vault", title: form.title, category: form.category });
-
     if (!form.title.trim()) {
       Alert.alert("Required", "Please enter a document title.");
       return;
@@ -284,30 +274,20 @@ export default function VaultScreen() {
         expiresDate: expiresIso ?? "",
       });
       logSaveSuccessEvent("vault", "save document", saved);
-      logDocAudit(16, { id: saved.id, title: saved.title });
-
       setForm({ ...EMPTY_FORM });
       setTagInput("");
       setPickedFileName(null);
       setShowAdd(false);
-
-      // Refresh must not convert a successful save into a failure alert.
       try {
         await refreshData();
-        logDocAudit(17, { ok: true });
-      } catch (refreshErr) {
-        logDocAudit(17, {
-          ok: false,
-          error: refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
-        });
+      } catch {
         Alert.alert(
           "Saved",
           "Document uploaded, but the list could not refresh. Pull to refresh."
         );
       }
-      logDocAudit(18, { id: saved.id, fileUri: redactUri(saved.fileUri) });
     } catch (e) {
-      showDocumentAuditError(e);
+      showRealSaveError("vault", "save document", e);
     } finally {
       savingRef.current = false;
       setSaving(false);

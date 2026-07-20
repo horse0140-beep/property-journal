@@ -21,7 +21,7 @@ import {
   setIsoDateFieldOmit,
   setIsoDateFieldNullable,
   todayIsoDate,
-  dateForDatabaseOrThrow,
+  normalizeDateForDatabase,
 } from "@/lib/dateForDatabase";
 
 function parsePhotoUri(value: unknown): string | undefined {
@@ -84,8 +84,8 @@ export function matchesPropertyId(
 /** upload_date is a date column in the live DB — always send ISO YYYY-MM-DD. */
 function normalizeUploadDate(value?: string): string {
   if (value?.trim()) {
-    const iso = dateForDatabaseOrThrow(value, "Upload date");
-    if (iso) return iso;
+    const parsed = normalizeDateForDatabase(value);
+    if (parsed.ok && parsed.iso) return parsed.iso;
   }
   return todayIsoDate();
 }

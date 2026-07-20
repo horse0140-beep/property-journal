@@ -2,7 +2,6 @@ import { Alert } from "react-native";
 import Constants from "expo-constants";
 import { friendlyMessage } from "@/lib/userErrors";
 import { AuthRequiredError } from "@/lib/authUser";
-import { DocumentAuditError, showDocumentAuditError } from "@/lib/documentUploadLog";
 
 export function logSaveSuccessEvent(screen: string, action: string, saved: unknown) {
   console.log("SAVE_SUCCESS", { screen, action, saved });
@@ -47,12 +46,6 @@ function formatDevSaveError(error: unknown): string {
 export function showRealSaveError(screen: string, action: string, error: unknown) {
   if (error instanceof AuthRequiredError || (error instanceof Error && error.message === "No authenticated user")) {
     Alert.alert("Session expired", "Please sign in again.");
-    return;
-  }
-
-  // Document upload audit errors always show step + code (diagnostic preview).
-  if (error instanceof DocumentAuditError || screen === "vault" || action.includes("document")) {
-    showDocumentAuditError(error);
     return;
   }
 

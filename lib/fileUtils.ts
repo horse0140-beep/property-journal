@@ -2,7 +2,6 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Alert } from "react-native";
-import { logDocAudit, redactUri } from "@/lib/documentUploadLog";
 
 const PHOTO_DIR = `${FileSystem.documentDirectory}homewise/photos/`;
 const DOC_DIR = `${FileSystem.documentDirectory}homewise/documents/`;
@@ -125,13 +124,6 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     if (result.canceled || !result.assets?.length) return null;
 
     const asset = result.assets[0];
-    logDocAudit(2, {
-      name: asset.name,
-      size: asset.size,
-      mimeType: asset.mimeType,
-      uri: redactUri(asset.uri),
-      copyToCacheDirectory: true,
-    });
     await ensureDir(DOC_DIR);
 
     const mime = asset.mimeType ?? "application/pdf";
@@ -158,12 +150,6 @@ export async function pickDocument(): Promise<PickedDocument | null> {
 
     const destInfo = await FileSystem.getInfoAsync(dest);
     const destSize = destInfo.exists && "size" in destInfo ? destInfo.size : asset.size;
-    console.log("[DOCUMENT STEP 1] copied to app documents dir", {
-      dest,
-      exists: destInfo.exists,
-      size: destSize,
-      mime,
-    });
     if (!destInfo.exists || destSize === 0) {
       throw new Error(
         `Copied document is missing or empty. exists=${destInfo.exists} size=${destSize ?? "unknown"}`

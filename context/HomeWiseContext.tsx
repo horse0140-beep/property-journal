@@ -30,17 +30,7 @@ import {
   isRemoteUri,
   verifyStorageBucketExists,
   verifyLocalFileExists,
-  verifyStorageObjectExists,
 } from "@/services/storageService";
-import {
-  docAuditFail,
-  DocumentAuditError,
-  extensionFromNameOrUri,
-  logDocAudit,
-  redactUri,
-} from "@/lib/documentUploadLog";
-import { resolveDocumentUrl } from "@/lib/documentUtils";
-import { documentToRow } from "@/types/database";
 import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { getPhotoBucket, photoKindFromCategory } from "@/services/storageBuckets";
 import {
@@ -799,274 +789,101 @@ export function HomeWiseProvider({
       },
 
       addDocument: async (d) => {
-        const startedAt = Date.now();
         const title = (d.title ?? "").trim();
         const propertyId = (d.propertyId ?? "").trim();
-        const fileName = title || "document";
-        const extension = extensionFromNameOrUri(d.fileUri) ?? extensionFromNameOrUri(fileName);
-        const elapsed = () => Date.now() - startedAt;
+        if (!title) throw new Error("Document title is required.");
+        if (!propertyId) throw new Error("Property is required.");
+        if (!d.fileUri?.trim()) throw new Error("Please choose a file before saving.");
 
-        // AUDIT 01 is logged by the Save button handler before this runs.
-        logDocAudit(3, { localUri: redactUri(d.fileUri), category: d.category, title });
-
-        if (!title) throw docAuditFail(1, new Error("Document title is required."));
-        if (!propertyId) throw docAuditFail(1, new Error("Property is required."));
-        if (!d.fileUri?.trim()) throw docAuditFail(3, new Error("Please choose a file before saving."));
-
-        const newDoc = { ...d, id: uuid(), title, propertyId };
+        const newDoc = {
+          ...d,
+          id: uuid(),
+          title,
+          propertyId,
+        };
         setState((s) => ({ ...s, documents: [newDoc, ...s.documents] }));
         bumpScore(propertyId);
-        if (!isSignedIn) {
-          logDocAudit(18, { offlineLocalOnly: true, id: newDoc.id });
-          return newDoc;
-        }
-
-        try {
-          await assertOnlineForWrite();
-        } catch (onlineErr) {
-          setState((s) => ({
-            ...s,
-            documents: s.documents.filter((docItem) => docItem.id !== newDoc.id),
-          }));
-          throw docAuditFail(1, onlineErr, {
-            localUri: d.fileUri,
-            fileName,
-            extension,
-            elapsedMs: elapsed(),
-          });
-        }
+        if (!isSignedIn) return newDoc;
+        await assertOnlineForWrite();
 
         let uploadedBucket: ReturnType<typeof bucketForDocumentCategory> | null = null;
         let uploadedPath: string | null = null;
-        let mimeType: string | undefined;
-        let fileSize: number | string | undefined = d.fileSize;
 
         try {
           const userId = await requireAuthUserId();
           let doc = newDoc;
 
           if (!isRemoteUri(d.fileUri)) {
-            logDocAudit(3, {
-              scheme: d.fileUri.startsWith("content://")
-                ? "content"
-                : d.fileUri.startsWith("file://")
-                  ? "file"
-                  : "other",
-              uri: redactUri(d.fileUri),
-            });
-
             const mimeHint =
               d.fileType === "pdf"
                 ? "application/pdf"
                 : d.fileType === "image"
                   ? "image/jpeg"
                   : undefined;
-            mimeType = mimeHint;
 
             const fileInfo = await verifyLocalFileExists(d.fileUri);
-            logDocAudit(4, { exists: fileInfo.exists, error: fileInfo.error, uri: redactUri(d.fileUri) });
             if (!fileInfo.exists) {
-              throw docAuditFail(4, new Error(fileInfo.error ?? "File not found on device."), {
-                localUri: d.fileUri,
-                fileName,
-                extension,
-                mimeType: mimeHint,
-                elapsedMs: elapsed(),
-              });
+              throw new Error(fileInfo.error ?? "File not found on device.");
             }
-
-            logDocAudit(5, { size: fileInfo.size, formatted: d.fileSize });
             if (fileInfo.size === 0) {
-              throw docAuditFail(5, new Error("Selected file is 0 bytes."), {
-                localUri: d.fileUri,
-                fileName,
-                extension,
-                mimeType: mimeHint,
-                fileSize: 0,
-                elapsedMs: elapsed(),
-              });
+              throw new Error("Selected file is 0 bytes.");
             }
-            fileSize = fileInfo.size ?? d.fileSize;
-
-            logDocAudit(6, { mimeHint, fileType: d.fileType, extension });
 
             const bucket = bucketForDocumentCategory(d.category);
-            logDocAudit(7, { category: d.category, bucket });
-
             const bucketCheck = await verifyStorageBucketExists(bucket);
             if (!bucketCheck.ok) {
-              throw docAuditFail(
-                7,
-                Object.assign(new Error(bucketCheck.error ?? `Bucket "${bucket}" not reachable`), {
-                  code: "STORAGE_BUCKET",
-                }),
-                {
-                  bucket,
-                  localUri: d.fileUri,
-                  fileName,
-                  extension,
-                  mimeType: mimeHint,
-                  fileSize,
-                  elapsedMs: elapsed(),
-                }
+              throw new Error(
+                `Storage bucket "${bucket}" is not reachable: ${bucketCheck.error ?? "unknown error"}`
               );
             }
 
-            let uploaded;
-            try {
-              uploaded = await uploadLocalFile(
-                userId,
-                bucket,
-                d.fileUri,
-                title || undefined,
-                undefined,
-                mimeHint,
-                { documentAudit: true }
-              );
-            } catch (uploadErr) {
-              throw docAuditFail(11, uploadErr, {
-                bucket,
-                localUri: d.fileUri,
-                fileName,
-                extension,
-                mimeType: mimeHint,
-                fileSize,
-                elapsedMs: elapsed(),
-              });
-            }
-
+            const uploaded = await uploadLocalFile(
+              userId,
+              bucket,
+              d.fileUri,
+              title || undefined,
+              undefined,
+              mimeHint
+            );
             uploadedBucket = uploaded.bucket;
             uploadedPath = uploaded.path;
-            mimeType = uploaded.mimeType ?? mimeHint;
-            logDocAudit(8, { bucket: uploaded.bucket, storagePath: uploaded.path });
-            logDocAudit(11, {
-              uploadResponse: uploaded.uploadResponse,
-              urlMethod: uploaded.urlMethod,
-              isPublic: uploaded.isPublic,
-              url: redactUri(uploaded.url),
-            });
-
-            const objectCheck = await verifyStorageObjectExists(uploaded.bucket, uploaded.path);
-            logDocAudit(12, objectCheck);
-            if (!objectCheck.exists) {
-              await deleteStorageObject(uploaded.bucket, uploaded.path);
-              throw docAuditFail(
-                12,
-                new Error(objectCheck.error ?? "Uploaded object could not be verified."),
-                {
-                  bucket: uploaded.bucket,
-                  storagePath: uploaded.path,
-                  mimeType,
-                  fileSize,
-                  localUri: d.fileUri,
-                  fileName,
-                  extension,
-                  elapsedMs: elapsed(),
-                }
-              );
-            }
 
             if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
               await deleteStorageObject(uploaded.bucket, uploaded.path);
-              throw docAuditFail(12, new Error("Upload did not return a usable signed/public URL."), {
-                bucket: uploaded.bucket,
-                storagePath: uploaded.path,
-                mimeType,
-                fileSize,
-                localUri: d.fileUri,
-                fileName,
-                extension,
-                elapsedMs: elapsed(),
-              });
+              throw new Error("File upload did not return a usable URL.");
             }
             doc = { ...doc, fileUri: uploaded.url };
           }
 
-          const table =
-            doc.category === "receipt"
-              ? "receipts"
-              : doc.category === "warranty"
-                ? "warranties"
-                : "documents";
-          const dbPayload = documentToRow(userId, doc, table);
-          logDocAudit(13, { table, dbPayload });
-
           let created: Document;
           try {
             created = await vaultService.createVaultDocument(userId, doc);
-            logDocAudit(14, {
-              id: created.id,
-              title: created.title,
-              fileUri: redactUri(created.fileUri),
-              category: created.category,
-              table,
-            });
           } catch (insertError) {
             if (uploadedBucket && uploadedPath) {
               await deleteStorageObject(uploadedBucket, uploadedPath);
             }
-            throw docAuditFail(14, insertError, {
-              bucket: uploadedBucket ?? undefined,
-              storagePath: uploadedPath ?? undefined,
-              mimeType,
-              fileSize,
-              localUri: d.fileUri,
-              fileName,
-              extension,
-              table,
-              insertPayload: dbPayload,
-              elapsedMs: elapsed(),
-            });
+            throw insertError;
           }
 
-          const rowUrl = created.fileUri?.trim() ?? "";
-          if (!rowUrl || !isRemoteUri(rowUrl)) {
-            logDocAudit(15, { recovering: true, id: created.id });
+          if (!created.fileUri?.trim() || !isRemoteUri(created.fileUri)) {
             const all = await vaultService.fetchAllVaultDocuments(userId).catch(() => [] as Document[]);
             const fetched = all.find((x) => x.id === created.id);
             if (fetched?.fileUri && isRemoteUri(fetched.fileUri)) {
               created = fetched;
-              logDocAudit(15, { recoveredById: true, fileUri: redactUri(fetched.fileUri) });
-            } else if (fetched) {
-              created = fetched;
-              logDocAudit(15, { recoveredWithoutRemoteUrl: true, id: created.id });
-            } else {
-              logDocAudit(15, { keepCreatedFallback: true, id: created.id });
             }
-          } else {
-            logDocAudit(15, { ok: true, id: created.id });
           }
 
           setState((s) => ({
             ...s,
             documents: s.documents.map((docItem) => (docItem.id === newDoc.id ? created : docItem)),
           }));
-          logDocAudit(16, { replacedOptimisticId: newDoc.id, createdId: created.id });
-
-          const viewerUrl = resolveDocumentUrl(created);
-          logDocAudit(18, {
-            id: created.id,
-            viewerUrl: redactUri(viewerUrl),
-            elapsedMs: elapsed(),
-          });
-
           return created;
         } catch (e) {
           setState((s) => ({
             ...s,
             documents: s.documents.filter((docItem) => docItem.id !== newDoc.id),
           }));
-          if (e instanceof DocumentAuditError) throw e;
-          throw docAuditFail(14, e, {
-            localUri: d.fileUri,
-            fileName,
-            extension,
-            mimeType,
-            fileSize,
-            bucket: uploadedBucket ?? undefined,
-            storagePath: uploadedPath ?? undefined,
-            elapsedMs: elapsed(),
-          });
+          throw e;
         }
       },
 
