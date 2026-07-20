@@ -20,6 +20,9 @@
     "preview": {
       "extends": "base",
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SHOW_REAL_ERRORS": "1"
+      },
       "ios": {
         "simulator": false
       }

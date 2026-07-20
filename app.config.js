@@ -32,9 +32,18 @@ module.exports = ({ config }) => {
     ];
   }
 
+  const showRealErrors =
+    process.env.EXPO_PUBLIC_SHOW_REAL_ERRORS === "1" ||
+    process.env.EAS_BUILD_PROFILE === "preview" ||
+    process.env.EAS_BUILD_PROFILE === "development";
+
   return {
     ...config,
     ios,
     android,
+    extra: {
+      ...(config.extra ?? {}),
+      showRealErrors,
+    },
   };
 };

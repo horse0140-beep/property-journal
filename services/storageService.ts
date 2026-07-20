@@ -180,37 +180,84 @@ function storageConfigMessage(error: { message?: string }): string | null {
   return null;
 }
 
-function wrapStorageError(error: { message: string }): Error {
+function wrapStorageError(error: {
+  message: string;
+  statusCode?: string | number;
+  error?: string;
+  name?: string;
+}): Error {
   const friendly = storageConfigMessage(error);
-  if (friendly) return new Error(friendly);
-  return new Error(error.message);
+  const parts = [
+    friendly ? `${friendly} (raw: ${error.message})` : error.message,
+    error.statusCode != null ? `statusCode=${error.statusCode}` : null,
+    error.error ? `error=${error.error}` : null,
+  ].filter(Boolean);
+  return new Error(parts.join(" | "));
 }
 
 function reportProgress(onProgress: UploadProgressCallback | undefined, phase: UploadPhase, percent: number) {
   onProgress?.({ phase, percent });
 }
 
-async function readLocalFile(uri: string, onProgress?: UploadProgressCallback): Promise<ArrayBuffer> {
+async function readLocalFile(
+  uri: string,
+  onProgress?: UploadProgressCallback
+): Promise<{ body: ArrayBuffer; byteLength: number; sizeOnDisk?: number }> {
   reportProgress(onProgress, "reading", 15);
 
   if (Platform.OS === "web") {
     const response = await fetch(uri);
     if (!response.ok) throw new Error("Failed to read file.");
     reportProgress(onProgress, "reading", 35);
-    return response.arrayBuffer();
+    const body = await response.arrayBuffer();
+    if (!body.byteLength) {
+      throw new Error("File read returned 0 bytes (web).");
+    }
+    return { body, byteLength: body.byteLength };
   }
 
+  // content:// URIs: prefer copy/fetch-readable file:// from picker (fileUtils).
+  // Still attempt read; fail clearly if unreadable or empty.
   const info = await FileSystem.getInfoAsync(uri);
   if (!info.exists) {
-    throw new Error("File not found on device.");
+    throw new Error(`File not found on device: ${uri}`);
+  }
+  const sizeOnDisk = "size" in info ? info.size : undefined;
+  if (sizeOnDisk === 0) {
+    throw new Error("Selected file is 0 bytes on disk.");
   }
 
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  let body: ArrayBuffer;
+  try {
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    if (!base64) {
+      throw new Error("File read returned empty base64.");
+    }
+    body = base64ToArrayBuffer(base64);
+  } catch (readErr) {
+    // Fallback for stubborn content:// URIs
+    if (uri.startsWith("content://") || uri.startsWith("file://")) {
+      try {
+        const response = await fetch(uri);
+        if (!response.ok) throw new Error(`fetch failed HTTP ${response.status}`);
+        body = await response.arrayBuffer();
+      } catch (fetchErr) {
+        const a = readErr instanceof Error ? readErr.message : String(readErr);
+        const b = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        throw new Error(`Unable to read local file bytes. read=${a}; fetch=${b}; uri=${uri}`);
+      }
+    } else {
+      throw readErr;
+    }
+  }
 
   reportProgress(onProgress, "reading", 40);
-  return base64ToArrayBuffer(base64);
+  if (!body.byteLength) {
+    throw new Error(`File read returned 0 bytes. uri=${uri} sizeOnDisk=${sizeOnDisk ?? "unknown"}`);
+  }
+  return { body, byteLength: body.byteLength, sizeOnDisk };
 }
 
 async function resolveAccessibleUrl(
@@ -363,6 +410,9 @@ export async function uploadLocalFile(
   if (!fileCheck.exists) {
     throw new Error(fileCheck.error ?? "File not found on device.");
   }
+  if (fileCheck.size === 0) {
+    throw new Error("Selected file is 0 bytes — nothing to upload.");
+  }
 
   reportProgress(onProgress, "uploading", 45);
 
@@ -370,20 +420,39 @@ export async function uploadLocalFile(
   const path = `${userId}/${safeName}`;
   const contentType = guessContentType(localUri, mimeType);
 
-  const uploadRequest = { bucket, path, contentType, userId, localUri };
+  const allowedMime =
+    contentType === "image/jpeg" ||
+    contentType === "image/png" ||
+    contentType === "application/pdf" ||
+    contentType.startsWith("image/") ||
+    contentType === "application/msword" ||
+    contentType.includes("wordprocessingml") ||
+    contentType === "application/octet-stream";
+
+  if (!allowedMime) {
+    throw new Error(`Unsupported MIME type for upload: ${contentType}`);
+  }
+
+  const uploadRequest = { bucket, path, contentType, userId, localUri, size: fileCheck.size };
   auditPipelineStep(4, uploadRequest);
   auditUpload("uploadRequest", uploadRequest);
 
-  const fileBody = await readLocalFile(localUri, onProgress);
+  const { body: fileBody, byteLength, sizeOnDisk } = await readLocalFile(localUri, onProgress);
+  if (!byteLength) {
+    throw new Error("Upload body is empty (0 bytes) after reading local file.");
+  }
+  console.log("[UPLOAD] file body ready", { byteLength, sizeOnDisk, contentType, path, bucket });
 
   reportProgress(onProgress, "uploading", 70);
 
-  const { data: uploadData, error } = await supabase.storage.from(bucket).upload(path, fileBody, {
+  // Uint8Array is more reliable than ArrayBuffer for RN Supabase storage uploads.
+  const uploadBytes = new Uint8Array(fileBody);
+  const { data: uploadData, error } = await supabase.storage.from(bucket).upload(path, uploadBytes, {
     contentType,
     upsert: true,
   });
 
-  auditPipelineStep(5, error ? { error: error.message } : uploadData);
+  auditPipelineStep(5, error ? { error: error.message, ...error } : uploadData);
   auditUpload("uploadResponse", error ?? uploadData);
 
   if (error) throw wrapStorageError(error);
@@ -396,6 +465,14 @@ export async function uploadLocalFile(
   const { url, isPublic, urlMethod } = await resolveAccessibleUrl(bucket, path);
   auditPipelineStep(7, { urlMethod, url, isPublic, bucket });
   auditUpload("urlResolution", { urlMethod, url, isPublic, bucket });
+
+  // Private buckets use signed URLs — never require a public HEAD 200.
+  if (isPublic && url) {
+    const check = await verifyImageUrlHttp200(url);
+    if (!check.ok) {
+      console.warn("[UPLOAD] public URL verify failed (non-fatal for private fallback already applied):", check);
+    }
+  }
 
   reportProgress(onProgress, "complete", 100);
 

@@ -30,20 +30,42 @@ async function insertVaultRow(
   let payload = documentToRow(userId, doc, table);
 
   for (;;) {
+    console.log("[DOCUMENT] DB insert attempt", { table, payload });
     const { data, error } = await supabase.from(table).insert(payload).select().single();
 
-    if (!error) return data!;
+    if (!error) {
+      console.log("[DOCUMENT] DB insert OK", { table, id: (data as { id?: string })?.id });
+      return data!;
+    }
+
+    console.warn("[DOCUMENT] DB insert error", {
+      table,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      payload,
+    });
 
     if (isInsertOkSelectFailed(error)) {
+      console.warn("[DOCUMENT] PGRST116 / select-after-insert — fetching by id", { id: doc.id });
       const fetched = await fetchInsertedRow(table, doc.id, userId);
       if (fetched) return fetched;
+      // Insert succeeded; SELECT blocked — treat as success with known payload.
       return { ...documentToRow(userId, doc, table), id: doc.id };
     }
 
     const next = omitMissingOptionalColumn(payload, error.message, DOCUMENT_OPTIONAL_COLUMNS);
     if (!next) {
       logSaveErrorFull("document", error);
-      throw new Error(error.message);
+      const parts = [
+        error.message,
+        error.code ? `code=${error.code}` : null,
+        error.details ? `details=${error.details}` : null,
+        error.hint ? `hint=${error.hint}` : null,
+        `table=${table}`,
+      ].filter(Boolean);
+      throw new Error(parts.join(" | "));
     }
     payload = next;
   }

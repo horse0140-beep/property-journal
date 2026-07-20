@@ -112,6 +112,8 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     const result = await DocumentPicker.getDocumentAsync({
       type: [
         "application/pdf",
+        "image/jpeg",
+        "image/png",
         "image/*",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -122,6 +124,12 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     if (result.canceled || !result.assets?.length) return null;
 
     const asset = result.assets[0];
+    console.log("[DOCUMENT STEP 1] picker result", {
+      name: asset.name,
+      uri: asset.uri,
+      size: asset.size,
+      mimeType: asset.mimeType,
+    });
     await ensureDir(DOC_DIR);
 
     const mime = asset.mimeType ?? "application/pdf";
@@ -146,12 +154,26 @@ export async function pickDocument(): Promise<PickedDocument | null> {
     const dest = `${DOC_DIR}${filename}`;
     await FileSystem.copyAsync({ from: asset.uri, to: dest });
 
+    const destInfo = await FileSystem.getInfoAsync(dest);
+    const destSize = destInfo.exists && "size" in destInfo ? destInfo.size : asset.size;
+    console.log("[DOCUMENT STEP 1] copied to app documents dir", {
+      dest,
+      exists: destInfo.exists,
+      size: destSize,
+      mime,
+    });
+    if (!destInfo.exists || destSize === 0) {
+      throw new Error(
+        `Copied document is missing or empty. exists=${destInfo.exists} size=${destSize ?? "unknown"}`
+      );
+    }
+
     return {
       uri: dest,
       name: asset.name?.includes(".") ? asset.name : `document.${ext}`,
-      size: asset.size,
+      size: destSize ?? asset.size,
       mimeType: mime,
-      formattedSize: formatBytes(asset.size ?? 0),
+      formattedSize: formatBytes(destSize ?? asset.size ?? 0),
     };
   } catch (e) {
     console.warn("pickDocument error:", e);

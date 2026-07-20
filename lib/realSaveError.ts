@@ -1,9 +1,19 @@
 import { Alert } from "react-native";
+import Constants from "expo-constants";
 import { friendlyMessage } from "@/lib/userErrors";
 import { AuthRequiredError } from "@/lib/authUser";
 
 export function logSaveSuccessEvent(screen: string, action: string, saved: unknown) {
   console.log("SAVE_SUCCESS", { screen, action, saved });
+}
+
+/** Preview / RC builds must surface the real error — not the generic friendly string. */
+function shouldShowRealSaveErrors(): boolean {
+  if (__DEV__) return true;
+  if (process.env.EXPO_PUBLIC_SHOW_REAL_ERRORS === "1") return true;
+  const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
+  if (extra?.showRealErrors === true || extra?.showRealErrors === "1") return true;
+  return false;
 }
 
 const SCREEN_MESSAGE_KEY: Record<string, string> = {
@@ -48,7 +58,7 @@ export function showRealSaveError(screen: string, action: string, error: unknown
     error,
   });
 
-  if (__DEV__) {
+  if (shouldShowRealSaveErrors()) {
     Alert.alert("Save Failed", `[${screen}] ${action}\n\n${message}`);
     return;
   }
