@@ -30,3 +30,5 @@ google-service-account.json
 
 # Generated branding QA previews
 artifacts/
+
+.vercel/

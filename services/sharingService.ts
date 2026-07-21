@@ -48,7 +48,12 @@ export async function fetchPropertyShareByToken(token: string): Promise<Property
   }
 
   if (!data) return null;
-  return data as PropertyShare;
+
+  // PostgREST may return jsonb as an object or (rarely) a JSON string.
+  const row = (typeof data === "string" ? JSON.parse(data) : data) as PropertyShare | null;
+  if (!row || typeof row !== "object") return null;
+  if (!row.share_token || row.is_active === false) return null;
+  return row;
 }
 
 export async function createPropertyShare(

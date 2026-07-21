@@ -10,6 +10,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "export:web": "expo export -p web",
+    "deploy:web": "expo export -p web && npx vercel --prod --yes",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "build:ios": "eas build --platform ios",
@@ -18,6 +19,7 @@
     "submit:android": "eas submit --platform android"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
@@ -38,12 +40,13 @@
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.8",
     "react": "19.1.0",
-    "react-dom": "^19.1.0",
+    "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-purchases": "^10.2.2",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "react-native-url-polyfill": "^3.0.0"
+    "react-native-url-polyfill": "^3.0.0",
+    "react-native-web": "^0.21.0"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
