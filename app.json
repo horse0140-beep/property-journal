@@ -53,10 +53,21 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/property-journal-splash.png",
-          "resizeMode": "contain",
           "backgroundColor": "#0F2460",
-          "imageWidth": 280
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 288,
+          "resizeMode": "contain",
+          "enableFullScreenImage_legacy": true,
+          "ios": {
+            "image": "./assets/property-journal-splash.png",
+            "resizeMode": "contain",
+            "enableFullScreenImage_legacy": true
+          },
+          "android": {
+            "image": "./assets/splash-icon.png",
+            "imageWidth": 288,
+            "resizeMode": "contain"
+          }
         }
       ],
       [
