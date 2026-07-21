@@ -23,7 +23,7 @@ export function friendlyMessage(key: keyof typeof MESSAGES | string): string {
 
 export function logTechnicalError(context: string, error: unknown) {
   const msg = error instanceof Error ? error.message : String(error);
-  console.warn(`[HomeWise:${context}]`, msg);
+  console.warn(`[PropertyJournal:${context}]`, msg);
 }
 
 export class UserFacingError extends Error {

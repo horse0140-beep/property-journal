@@ -204,7 +204,7 @@ export default function AuthCallbackScreen() {
     >
       <ActivityIndicator size="large" color={colors.primary} />
       <Text style={{ color: colors.textMuted, marginTop: 16, textAlign: "center" }}>
-        Email confirmed — opening HomeWise…
+        Email confirmed — opening Property Journal…
       </Text>
     </SafeAreaView>
   );

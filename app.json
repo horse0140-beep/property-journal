@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "HomeWise",
+    "name": "Property Journal",
     "slug": "homewise",
     "version": "2.0.0",
     "orientation": "portrait",
@@ -19,9 +19,10 @@
       "buildNumber": "1",
       "requireFullScreen": false,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "HomeWise uses your photo library to attach photos to repairs, appliances, and home records.",
-        "NSPhotoLibraryAddUsageDescription": "HomeWise saves generated reports to your photo library.",
-        "NSCameraUsageDescription": "HomeWise uses your camera to photograph appliances, receipts, and home repairs.",
+        "CFBundleDisplayName": "Property Journal",
+        "NSPhotoLibraryUsageDescription": "Property Journal uses your photo library to attach photos to repairs, appliances, and home records.",
+        "NSPhotoLibraryAddUsageDescription": "Property Journal saves generated reports to your photo library.",
+        "NSCameraUsageDescription": "Property Journal uses your camera to photograph appliances, receipts, and home repairs.",
         "UIBackgroundModes": [
           "remote-notification"
         ],
@@ -61,8 +62,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "HomeWise uses your photos to attach images to repairs and appliances.",
-          "cameraPermission": "HomeWise uses your camera to photograph appliances and receipts.",
+          "photosPermission": "Property Journal uses your photos to attach images to repairs and appliances.",
+          "cameraPermission": "Property Journal uses your camera to photograph appliances and receipts.",
           "microphonePermission": false
         }
       ],

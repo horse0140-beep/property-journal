@@ -269,7 +269,7 @@ export default function ReportsScreen() {
       const fromDb = await fetchPropertyReportData(
         user.id,
         pid,
-        user.name ?? "HomeWise User"
+        user.name ?? "Property Journal User"
       );
       if (fromDb) {
         setReportData(fromDb);
@@ -288,7 +288,7 @@ export default function ReportsScreen() {
       documents: propDocs,
       photos: propPhotos,
       contractors,
-      ownerName: user?.name ?? "HomeWise User",
+      ownerName: user?.name ?? "Property Journal User",
     });
     setReportData(assembled);
     return assembled;
@@ -368,7 +368,7 @@ export default function ReportsScreen() {
         if (!pdf) return;
 
         const safeName = property.address.replace(/[^a-zA-Z0-9]/g, "_");
-        const result = await shareReportPdf(pdf.uri, `HomeWise_Report_${safeName}`);
+        const result = await shareReportPdf(pdf.uri, `PropertyJournal_Report_${safeName}`);
         if (result.error) Alert.alert("Share Failed", result.error);
       } finally {
         setSharing(false);
@@ -392,7 +392,7 @@ export default function ReportsScreen() {
           Alert.alert("Save Warning", result.error);
         } else if (result.saved) {
           setLastSaved(result.saved);
-          Alert.alert("Saved", "Report saved to your HomeWise account.");
+          Alert.alert("Saved", "Report saved to your Property Journal account.");
         } else {
           Alert.alert("Saved Locally", "PDF generated. Run migration 009_reports.sql to enable cloud metadata.");
         }
@@ -501,7 +501,7 @@ export default function ReportsScreen() {
                   <Ionicons name="shield-checkmark" size={24} color={colors.success} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.success, fontWeight: "800", fontSize: 14 }}>
-                      HomeWise Certified™
+                      Property Journal Certified™
                     </Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
                       Score 85+ — your home qualifies for the certified badge.
@@ -639,7 +639,7 @@ export default function ReportsScreen() {
           <>
             <ReportPreviewCard
               propertyAddress={property.address}
-              ownerName={user?.name ?? "HomeWise User"}
+              ownerName={user?.name ?? "Property Journal User"}
               score={score}
               maintenanceCount={propMaint.length}
               repairCount={propRepairs.length}

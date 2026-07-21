@@ -57,7 +57,7 @@ export async function generateHomeHistoryPDF(params: {
     ? `<div style="background:#DCFCE7;border:2px solid #16A34A;border-radius:12px;padding:16px 24px;margin:20px 0;display:flex;align-items:center;gap:12px;">
         <span style="font-size:28px;">✓</span>
         <div>
-          <div style="color:#16A34A;font-size:18px;font-weight:800;">HomeWise Certified™</div>
+          <div style="color:#16A34A;font-size:18px;font-weight:800;">Property Journal Certified™</div>
           <div style="color:#166534;font-size:13px;">This property maintains a Health Score of ${score.overall}/100 — top tier for buyer confidence.</div>
         </div>
       </div>`
@@ -147,7 +147,7 @@ export async function generateHomeHistoryPDF(params: {
   <div class="header">
     <div class="header-top">
       <div>
-        <div class="logo">HOME<span>WISE</span></div>
+        <div class="logo">Property <span>Journal</span></div>
         <div class="tagline">The CarFax for Your House™</div>
       </div>
       <div class="report-date">
@@ -305,9 +305,9 @@ export async function generateHomeHistoryPDF(params: {
 
   <!-- Footer -->
   <div class="footer">
-    <p><strong>HomeWise™</strong> — The CarFax for Your House</p>
+    <p><strong>Property Journal™</strong> — The CarFax for Your House</p>
     <p style="margin-top:6px;">This report was generated on ${reportDate} and reflects data entered by the homeowner.</p>
-    <p style="margin-top:4px;">© 2026 HomeWise Inc. · homewise.app</p>
+    <p style="margin-top:4px;">© 2026 Property Journal · homewise.app</p>
   </div>
 
 </div>
@@ -333,7 +333,7 @@ export async function sharePDF(uri: string, filename: string) {
   await FileSystem.copyAsync({ from: uri, to: dest });
   await Sharing.shareAsync(dest, {
     mimeType: "application/pdf",
-    dialogTitle: "Share HomeWise Report",
+    dialogTitle: "Share Property Journal Report",
     UTI: "com.adobe.pdf",
   });
 }

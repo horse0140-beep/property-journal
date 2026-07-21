@@ -157,10 +157,10 @@ export function ScoreCategoryDetailView({ insight, onFixNow }: Props) {
         onPress={askAi}
         style={[styles.secondaryButton, { marginTop: 0 }]}
         accessibilityRole="button"
-        accessibilityLabel="Ask HomeWise AI"
+        accessibilityLabel="Ask Property Journal AI"
       >
         <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-        <Text style={styles.secondaryButtonText}>Ask HomeWise AI</Text>
+        <Text style={styles.secondaryButtonText}>Ask Property Journal AI</Text>
       </Pressable>
     </View>
   );

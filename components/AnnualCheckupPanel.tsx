@@ -76,7 +76,7 @@ export function AnnualCheckupPanel({
     }
     const share = await shareAnnualReportPdf(result.uri, address);
     if (share.error) Alert.alert("Share", share.error);
-    else Alert.alert("Annual Checkup Complete", "Your HomeWise Annual Home Health Report is ready to share.");
+    else Alert.alert("Annual Checkup Complete", "Your Property Journal Annual Home Health Report is ready to share.");
   };
 
   if (loading) {

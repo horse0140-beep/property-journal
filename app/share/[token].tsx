@@ -113,7 +113,7 @@ export default function SharedPropertyScreen() {
         </Card>
 
         <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 24 }}>
-          Shared via HomeWise · This is a read-only preview
+          Shared via Property Journal · This is a read-only preview
         </Text>
       </ScrollView>
     </Screen>

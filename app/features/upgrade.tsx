@@ -189,7 +189,7 @@ export default function PremiumUpgradeScreen() {
               letterSpacing: 1,
             }}
           >
-            HOMEWISE PREMIUM
+            PROPERTY JOURNAL PREMIUM
           </Text>
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900", marginTop: 6 }}>
             Upgrade Your Plan

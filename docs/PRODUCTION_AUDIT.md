@@ -1,4 +1,4 @@
-# HomeWise Production & App Store Audit
+# Property Journal Production & App Store Audit
 
 **Date:** 2026-06-15 · **Version:** 2.0.0 · **Stack:** Expo 54 / RN 0.81 / Supabase / RevenueCat
 

@@ -130,7 +130,7 @@ export default function PropertySharingScreen() {
   async function shareLink(share: PropertyShare) {
     const message = buildShareMessage(
       share.share_token,
-      `View my HomeWise property history for ${share.property_label}.`
+      `View my Property Journal property history for ${share.property_label}.`
     );
     if (!message) {
       Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);

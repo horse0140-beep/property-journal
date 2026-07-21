@@ -361,7 +361,7 @@ export async function getUsers(): Promise<AdminUser[]> {
     return {
       id: p.id,
       email: p.email,
-      name: p.name ?? "HomeWise User",
+      name: p.name ?? "Property Journal User",
       phone: p.phone,
       plan: founder ? FOUNDER_PLAN : ((p.plan ?? "free") as PlanKey),
       created_at: p.created_at,

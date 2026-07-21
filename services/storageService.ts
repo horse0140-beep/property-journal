@@ -172,7 +172,7 @@ export function showUploadError(error: unknown, title = "Upload Error"): void {
 function storageConfigMessage(error: { message?: string }): string | null {
   const msg = (error.message ?? "").toLowerCase();
   if (msg.includes("bucket not found") || (msg.includes("not found") && msg.includes("bucket"))) {
-    return "Storage is not configured yet. Please create the HomeWise uploads bucket in Supabase.";
+    return "Storage is not configured yet. Please create the Property Journal uploads bucket in Supabase.";
   }
   if (msg.includes("row-level security") || msg.includes("policy")) {
     return "Storage upload was blocked. Check Supabase storage policies for this bucket.";

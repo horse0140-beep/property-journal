@@ -63,8 +63,8 @@ export default function SignInScreen() {
             <Ionicons name="home" size={36} color="#fff" />
           </View>
           <View style={{ flexDirection: "row" }}>
-            <Text style={{ color: colors.primary, fontSize: 32, fontWeight: "900" }}>HOME</Text>
-            <Text style={{ color: colors.accent, fontSize: 32, fontWeight: "900" }}>WISE</Text>
+            <Text style={{ color: colors.primary, fontSize: 28, fontWeight: "900" }}>Property</Text>
+            <Text style={{ color: colors.accent, fontSize: 28, fontWeight: "900" }}> Journal</Text>
           </View>
           <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 4 }}>The CarFax for Your House™</Text>
         </View>
@@ -72,7 +72,7 @@ export default function SignInScreen() {
         {/* Card */}
         <View style={{ backgroundColor: colors.bgCard, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: colors.border }}>
           <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: "800", marginBottom: 6 }}>Welcome back</Text>
-          <Text style={{ color: colors.textMuted, fontSize: 14, marginBottom: 24 }}>Sign in to your HomeWise account</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 14, marginBottom: 24 }}>Sign in to your Property Journal account</Text>
 
           {errors.general && (
             <View style={{ backgroundColor: colors.dangerBg, borderRadius: 10, padding: 12, marginBottom: 16, flexDirection: "row", gap: 8 }}>

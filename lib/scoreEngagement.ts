@@ -94,7 +94,7 @@ export function computeMilestones(params: {
   const completed = params.maintenance.filter((m) => m.status === "Completed").length;
 
   const defs: Omit<Milestone, "earned">[] = [
-    { id: "first_property", emoji: "🏡", title: "First Property", description: "Added your first home to HomeWise." },
+    { id: "first_property", emoji: "🏡", title: "First Property", description: "Added your first home to Property Journal." },
     { id: "maintenance_pro", emoji: "🛠", title: "Maintenance Pro", description: "Completed 10+ maintenance tasks." },
     { id: "document_master", emoji: "📄", title: "Document Master", description: "Uploaded 10+ documents to Vault." },
     { id: "appliance_expert", emoji: "🔧", title: "Appliance Expert", description: "Logged 5+ property appliances." },

@@ -87,14 +87,14 @@ export default function BuyerReportsScreen() {
         appliances: propApps,
         documents: propDocs,
         contractors,
-        ownerName: user?.name ?? "HomeWise User",
+        ownerName: user?.name ?? "Property Journal User",
       });
       if ("error" in result) {
         Alert.alert("Error", result.error);
         return;
       }
       const safeName = property.address.replace(/[^a-zA-Z0-9]/g, "_");
-      await sharePDF(result.uri, `HomeWise_BuyerReport_${safeName}`);
+      await sharePDF(result.uri, `PropertyJournal_BuyerReport_${safeName}`);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
@@ -131,13 +131,13 @@ export default function BuyerReportsScreen() {
 
       const message = buildShareMessage(
         share.share_token,
-        `HomeWise Buyer Report for ${property.address}\n\nView the complete home history (no personal info):`
+        `Property Journal Buyer Report for ${property.address}\n\nView the complete home history (no personal info):`
       );
       if (!message) {
         Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
         return;
       }
-      await Share.share({ message, title: "HomeWise Buyer Report" });
+      await Share.share({ message, title: "Property Journal Buyer Report" });
       await load();
     } catch (e: any) {
       Alert.alert("Error", e.message);
@@ -193,7 +193,7 @@ export default function BuyerReportsScreen() {
             {score.overall >= 85 && (
               <View style={{ backgroundColor: colors.successBg, borderRadius: 12, padding: 12, marginTop: 10, flexDirection: "row", gap: 10, alignItems: "center" }}>
                 <Ionicons name="shield-checkmark" size={22} color={colors.success} />
-                <Text style={{ color: colors.success, fontWeight: "800", flex: 1 }}>HomeWise Certified™ — qualifies for buyer badge</Text>
+                <Text style={{ color: colors.success, fontWeight: "800", flex: 1 }}>Property Journal Certified™ — qualifies for buyer badge</Text>
               </View>
             )}
           </Card>

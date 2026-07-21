@@ -19,7 +19,7 @@ import { supabase } from "@/lib/supabase";
 import { createSessionFromUrl } from "@/lib/authSessionFromUrl";
 import { colors, styles } from "@/constants/theme";
 
-function HomeWiseLogo() {
+function BrandLogo() {
   return (
     <View style={{ alignItems: "center", marginBottom: 32 }}>
       <View
@@ -36,8 +36,8 @@ function HomeWiseLogo() {
         <Ionicons name="home" size={36} color="#fff" />
       </View>
       <View style={{ flexDirection: "row" }}>
-        <Text style={{ color: colors.primary, fontSize: 32, fontWeight: "900" }}>HOME</Text>
-        <Text style={{ color: colors.accent, fontSize: 32, fontWeight: "900" }}>WISE</Text>
+        <Text style={{ color: colors.primary, fontSize: 28, fontWeight: "900" }}>Property</Text>
+        <Text style={{ color: colors.accent, fontSize: 28, fontWeight: "900" }}> Journal</Text>
       </View>
       <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 4 }}>
         The CarFax for Your House™
@@ -246,7 +246,7 @@ export default function ResetPasswordScreen() {
           automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
-          <HomeWiseLogo />
+          <BrandLogo />
 
           <View
             style={{
@@ -276,7 +276,7 @@ export default function ResetPasswordScreen() {
             </View>
 
             <Text style={{ color: colors.textMuted, fontSize: 14, marginBottom: 24, lineHeight: 20 }}>
-              Choose a strong password for your HomeWise account.
+              Choose a strong password for your Property Journal account.
             </Text>
 
             {errors.general ? (

@@ -64,7 +64,7 @@ export default function AdminBroadcastScreen() {
     }
     if (!user?.id) return;
 
-    Alert.alert("Send Broadcast", "Send this notification to all HomeWise users?", [
+    Alert.alert("Send Broadcast", "Send this notification to all Property Journal users?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Send",
@@ -176,7 +176,7 @@ export default function AdminBroadcastScreen() {
                 <Ionicons name="megaphone-outline" size={48} color={colors.textMuted} />
                 <Text style={styles.emptyStateTitle}>No broadcasts yet</Text>
                 <Text style={styles.emptyStateText}>
-                  Send your first announcement to all HomeWise users.
+                  Send your first announcement to all Property Journal users.
                 </Text>
               </View>
             ) : (

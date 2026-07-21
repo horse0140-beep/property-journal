@@ -148,8 +148,8 @@ export default function ContractorPortalScreen() {
   async function inviteContractor(entry: ContractorPortalAccess) {
     const url = buildPortalUrl(entry.access_code);
     await Share.share({
-      message: `You've been invited to the HomeWise Contractor Portal for ${entry.property_label}.\n\nPortal: ${url}\nAccess Code: ${entry.access_code}\n\nYou can view assigned maintenance and repair schedules.`,
-      title: "HomeWise Contractor Portal Invite",
+      message: `You've been invited to the Property Journal Contractor Portal for ${entry.property_label}.\n\nPortal: ${url}\nAccess Code: ${entry.access_code}\n\nYou can view assigned maintenance and repair schedules.`,
+      title: "Property Journal Contractor Portal Invite",
     });
   }
 

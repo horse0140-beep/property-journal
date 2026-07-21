@@ -232,7 +232,7 @@ export default function SettingsScreen() {
   }
 
   function confirmSignOut() {
-    Alert.alert("Sign Out", "Sign out of HomeWise on this device?", [
+    Alert.alert("Sign Out", "Sign out of Property Journal on this device?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Sign Out",

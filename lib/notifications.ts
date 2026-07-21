@@ -318,7 +318,7 @@ export async function sendTestNotification(): Promise<boolean> {
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: "HomeWise Test Notification",
+      title: "Property Journal Test Notification",
       body: "Push notifications are working correctly.",
       data: { type: "system", id: "test" },
       sound: true,
@@ -328,7 +328,7 @@ export async function sendTestNotification(): Promise<boolean> {
 
   await saveIncomingNotification({
     type: "system",
-    title: "HomeWise Test Notification",
+    title: "Property Journal Test Notification",
     body: "Push notifications are working correctly.",
     sourceId: "test",
   });

@@ -183,7 +183,7 @@ export default function OwnerDashboard() {
                 letterSpacing: 1.2,
               }}
             >
-              HOMEWISE OWNER
+              PROPERTY JOURNAL OWNER
             </Text>
             <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900", marginTop: 6 }}>
               Owner Dashboard

@@ -205,7 +205,7 @@ export default function ProfileScreen() {
 
   function showPremiumAlert() {
     Alert.alert(
-      "HomeWise Premium",
+      "Property Journal Premium",
       "Upgrade to Premium:\n\n• Property Sharing\n• Contractor Portal\n• Home Buyer Reports\n• AI Maintenance Forecasting\n• Stripe Billing\n• Unlimited properties & cloud sync\n\nStarting at $4.99/month",
       [
         { text: "Maybe Later", style: "cancel" },
@@ -213,7 +213,7 @@ export default function ProfileScreen() {
           text: "Learn More",
           onPress: () =>
             Alert.alert(
-              "HomeWise Premium",
+              "Property Journal Premium",
               "Premium features include:\n\n• Property Sharing\n• Contractor Portal\n• Home Buyer Reports\n• AI Maintenance Forecasting\n• Stripe Billing\n• Unlimited properties\n\nAvailable for $4.99/month or $39.99/year."
             ),
         },
@@ -394,7 +394,7 @@ export default function ProfileScreen() {
           </View>
 
           <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: "800" }}>
-            {user?.name ?? "HomeWise User"}
+            {user?.name ?? "Property Journal User"}
           </Text>
 
           <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 4 }}>
@@ -848,9 +848,9 @@ export default function ProfileScreen() {
             />
             <Row
               icon="star-outline"
-              label="Rate HomeWise"
+              label="Rate Property Journal"
               onPress={() =>
-                Alert.alert("Rate HomeWise", "Thank you! Tap OK when our App Store page opens.", [
+                Alert.alert("Rate Property Journal", "Thank you! Tap OK when our App Store page opens.", [
                   { text: "Cancel", style: "cancel" },
                   { text: "OK" },
                 ])
@@ -860,7 +860,7 @@ export default function ProfileScreen() {
               icon="chatbubble-outline"
               label="Send Feedback"
               onPress={() =>
-                Linking.openURL("mailto:feedback@homewise.app?subject=HomeWise%20Feedback")
+                Linking.openURL("mailto:feedback@homewise.app?subject=Property%20Journal%20Feedback")
               }
             />
           </View>
@@ -952,7 +952,7 @@ export default function ProfileScreen() {
             marginBottom: 24,
           }}
         >
-          HomeWise™ — The CarFax for Your House{"\n"}© 2026 HomeWise Inc.
+          Property Journal™ — The CarFax for Your House{"\n"}© 2026 Property Journal
         </Text>
       </ScrollView>
 

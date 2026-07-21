@@ -145,7 +145,7 @@ export default function NotificationCenterScreen() {
               letterSpacing: 1.2,
             }}
           >
-            HOMEWISE
+            PROPERTY JOURNAL
           </Text>
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900", marginTop: 6 }}>
             Notification Center

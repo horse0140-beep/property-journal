@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/context/AuthContext";
 import { colors, styles } from "@/constants/theme";
 
-function HomeWiseLogo() {
+function BrandLogo() {
   return (
     <View style={{ alignItems: "center", marginBottom: 32 }}>
       <View
@@ -32,8 +32,8 @@ function HomeWiseLogo() {
         <Ionicons name="home" size={36} color="#fff" />
       </View>
       <View style={{ flexDirection: "row" }}>
-        <Text style={{ color: colors.primary, fontSize: 32, fontWeight: "900" }}>HOME</Text>
-        <Text style={{ color: colors.accent, fontSize: 32, fontWeight: "900" }}>WISE</Text>
+        <Text style={{ color: colors.primary, fontSize: 28, fontWeight: "900" }}>Property</Text>
+        <Text style={{ color: colors.accent, fontSize: 28, fontWeight: "900" }}> Journal</Text>
       </View>
       <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 4 }}>
         The CarFax for Your House™
@@ -99,7 +99,7 @@ export default function ForgotPasswordScreen() {
           automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
-          <HomeWiseLogo />
+          <BrandLogo />
 
           <View
             style={{
@@ -129,7 +129,7 @@ export default function ForgotPasswordScreen() {
             </View>
 
             <Text style={{ color: colors.textMuted, fontSize: 14, marginBottom: 24, lineHeight: 20 }}>
-              Enter the email on your HomeWise account. We will send a secure link to reset your password.
+              Enter the email on your Property Journal account. We will send a secure link to reset your password.
             </Text>
 
             {sent ? (

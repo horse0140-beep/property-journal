@@ -39,7 +39,7 @@ export default function AIScreen() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hi! I'm your HomeWise AI Assistant. I have full access to your home data and can answer questions about maintenance, repairs, appliances, warranties, and more.\n\nWhat would you like to know about ${ctx.selectedProperty?.address ?? "your home"}?`,
+      content: `Hi! I'm your Property Journal AI Assistant. I have full access to your home data and can answer questions about maintenance, repairs, appliances, warranties, and more.\n\nWhat would you like to know about ${ctx.selectedProperty?.address ?? "your home"}?`,
     },
   ]);
   const [input, setInput] = useState("");
@@ -63,7 +63,7 @@ export default function AIScreen() {
     const docs  = ctx.documents.filter((d) => d.propertyId === pid);
     const score = ctx.getPropertyScore(pid);
 
-    return `HOMEWISE PROPERTY DATA:
+    return `PROPERTY JOURNAL PROPERTY DATA:
 
 Property: ${prop.address}, ${prop.city}, ${prop.state}
 Type: ${prop.type} | Built: ${prop.yearBuilt} | Sq Ft: ${prop.squareFeet}
@@ -121,7 +121,7 @@ ${ctx.contractors.map((c) => `- ${c.name}: ${c.trade}, ${c.phone}, Rating: ${c.r
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
-          system: `You are HomeWise AI, an expert home assistant built into the HomeWise app. You have access to this homeowner's complete property data. Answer questions helpfully, concisely, and accurately using their specific data. Format responses clearly with line breaks. When listing items, use bullet points. Be conversational but informative.\n\n${buildContext()}`,
+          system: `You are Property Journal AI, an expert home assistant built into the Property Journal app. You have access to this homeowner's complete property data. Answer questions helpfully, concisely, and accurately using their specific data. Format responses clearly with line breaks. When listing items, use bullet points. Be conversational but informative.\n\n${buildContext()}`,
           messages: updated.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -189,7 +189,7 @@ ${ctx.contractors.map((c) => `- ${c.name}: ${c.trade}, ${c.phone}, Rating: ${c.r
                   <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="sparkles" size={11} color="#fff" />
                   </View>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>HomeWise AI</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Property Journal AI</Text>
                 </View>
               )}
               <View style={{

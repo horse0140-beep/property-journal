@@ -341,8 +341,8 @@ export default function HomeScreen() {
           </Pressable>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
             <Ionicons name="home" size={18} color={colors.primary} />
-            <Text style={{ color: colors.primary, fontSize: 17, fontWeight: "900" }}>HOME</Text>
-            <Text style={{ color: colors.accent, fontSize: 17, fontWeight: "900" }}>WISE</Text>
+            <Text style={{ color: colors.primary, fontSize: 15, fontWeight: "900" }}>Property</Text>
+            <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "900" }}> Journal</Text>
           </View>
         </View>
         <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
@@ -522,7 +522,7 @@ export default function HomeScreen() {
               Home Setup
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 12 }}>
-              A few steps using tools you already have in HomeWise.
+              A few steps using tools you already have in Property Journal.
             </Text>
             {(
               [

@@ -227,7 +227,7 @@ export function buildHomeHistoryReportHtml(data: HomeHistoryReportData): string 
   const certifiedBadge =
     score.overall >= 85
       ? `<div style="background:#DCFCE7;border:2px solid #16A34A;border-radius:12px;padding:16px 24px;margin:20px 0;">
-          <div style="color:#16A34A;font-size:18px;font-weight:800;">HomeWise Certified™</div>
+          <div style="color:#16A34A;font-size:18px;font-weight:800;">Property Journal Certified™</div>
           <div style="color:#166534;font-size:13px;margin-top:4px;">Health Score ${score.overall}/100 — top tier for buyer confidence.</div>
         </div>`
       : "";
@@ -368,7 +368,7 @@ export function buildHomeHistoryReportHtml(data: HomeHistoryReportData): string 
   <div class="header">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div>
-        <div class="logo">HOME<span>WISE</span></div>
+        <div class="logo">Property <span>Journal</span></div>
         <div class="tagline">The CarFax for Your House™</div>
       </div>
       <div style="text-align:right;font-size:12px;color:rgba(255,255,255,0.7);">
@@ -459,11 +459,11 @@ export function buildHomeHistoryReportHtml(data: HomeHistoryReportData): string 
   }
 
   <div class="disclaimer">
-    <strong>Disclaimer:</strong> This Home History Report™ is for informational purposes only. All data is self-reported by the property owner through HomeWise. HomeWise does not verify the accuracy or completeness of this information. This report is not a substitute for a professional home inspection, appraisal, or title search. Buyers, lenders, and insurers should conduct their own due diligence.
+    <strong>Disclaimer:</strong> This Home History Report™ is for informational purposes only. All data is self-reported by the property owner through Property Journal. Property Journal does not verify the accuracy or completeness of this information. This report is not a substitute for a professional home inspection, appraisal, or title search. Buyers, lenders, and insurers should conduct their own due diligence.
   </div>
 
   <div class="footer">
-    <p><strong>HomeWise™</strong> — The CarFax for Your House</p>
+    <p><strong>Property Journal™</strong> — The CarFax for Your House</p>
     <p style="margin-top:6px;">Generated ${reportDate} · homewise.app</p>
   </div>
 </div>
@@ -508,7 +508,7 @@ export async function shareReportPdf(uri: string, filename: string): Promise<{ e
     await FileSystem.copyAsync({ from: uri, to: dest });
     await Sharing.shareAsync(dest, {
       mimeType: "application/pdf",
-      dialogTitle: "Share HomeWise Report",
+      dialogTitle: "Share Property Journal Report",
       UTI: "com.adobe.pdf",
     });
     return {};
@@ -562,7 +562,7 @@ export async function saveReport(
     const uploaded = await uploadReportPdf(
       userId,
       localPdfUri,
-      `HomeWise_Report_${data.property.address.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.pdf`
+      `PropertyJournal_Report_${data.property.address.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.pdf`
     );
     fileUrl = uploaded.url;
   } catch (e: unknown) {

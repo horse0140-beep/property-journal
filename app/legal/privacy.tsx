@@ -45,8 +45,8 @@ export default function PrivacyPolicyScreen() {
         <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 24 }}>Last updated: June 1, 2026</Text>
 
         <Section title="Introduction">
-          <Para>HomeWise Inc. (&quot;HomeWise,&quot; &quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the HomeWise mobile application. This Privacy Policy explains how we collect, use, disclose, and protect information about you when you use our Services.</Para>
-          <Para>By using HomeWise, you agree to the collection and use of information in accordance with this policy.</Para>
+          <Para>Property Journal (&quot;Property Journal,&quot; &quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the Property Journal mobile application. This Privacy Policy explains how we collect, use, disclose, and protect information about you when you use our Services.</Para>
+          <Para>By using Property Journal, you agree to the collection and use of information in accordance with this policy.</Para>
         </Section>
 
         <Section title="Information We Collect">
@@ -59,7 +59,7 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="How We Use Your Information">
-          <Bullet text="To provide, maintain, and improve the HomeWise app and its features." />
+          <Bullet text="To provide, maintain, and improve the Property Journal app and its features." />
           <Bullet text="To send maintenance reminders and warranty expiration alerts you've opted into." />
           <Bullet text="To generate your Home History Report™ and other reports you request." />
           <Bullet text="To power the AI Home Assistant with your property context." />
@@ -68,7 +68,7 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="Data Storage">
-          <Para>HomeWise stores your data locally on your device using secure device storage. Photos and documents you upload are saved to your device&apos;s local file system within the HomeWise app container.</Para>
+          <Para>Property Journal stores your data locally on your device using secure device storage. Photos and documents you upload are saved to your device&apos;s local file system within the Property Journal app container.</Para>
           <Para>In the premium version, data may be optionally backed up to encrypted cloud storage. Cloud storage uses industry-standard AES-256 encryption at rest and TLS in transit.</Para>
         </Section>
 
@@ -94,7 +94,7 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="Children's Privacy">
-          <Para>HomeWise is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If we learn we have collected such information, we will delete it promptly.</Para>
+          <Para>Property Journal is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If we learn we have collected such information, we will delete it promptly.</Para>
         </Section>
 
         <Section title="Security">
@@ -107,7 +107,7 @@ export default function PrivacyPolicyScreen() {
 
         <Section title="Contact Us">
           <Para>If you have questions about this Privacy Policy or our data practices, please contact us:</Para>
-          <Para style={{ fontWeight: "600" }}>HomeWise Inc.</Para>
+          <Para style={{ fontWeight: "600" }}>Property Journal</Para>
           <Para>Email: privacy@homewise.app</Para>
           <Para>Website: homewise.app/privacy</Para>
         </Section>

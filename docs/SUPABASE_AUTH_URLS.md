@@ -1,4 +1,4 @@
-# Supabase Auth URL configuration (HomeWise)
+# Supabase Auth URL configuration (Property Journal)
 
 Apply in **Supabase Dashboard → Authentication → URL Configuration**.
 
@@ -60,4 +60,4 @@ EXPO_PUBLIC_AUTH_REDIRECT_URL=homewise://auth/callback
 2. Restart Expo (`npx expo start --tunnel`).
 3. Sign up with a **new** email on the same device.
 4. Check Metro log for `[auth] signUp emailRedirectTo`.
-5. Tap the email link — should open HomeWise at `/auth/callback`, not homewise.app.
+5. Tap the email link — should open Property Journal at `/auth/callback`, not homewise.app.

@@ -63,13 +63,13 @@ const PREF_ROWS: {
     key: "subscriptionReminders",
     icon: "card-outline",
     label: "Subscription Renewal",
-    description: "Renewal reminders for your HomeWise plan",
+    description: "Renewal reminders for your Property Journal plan",
   },
   {
     key: "adminBroadcasts",
     icon: "megaphone-outline",
     label: "Admin Announcements",
-    description: "Important updates from the HomeWise team",
+    description: "Important updates from the Property Journal team",
   },
   {
     key: "emailDigest",
@@ -196,7 +196,7 @@ export default function NotificationSettingsScreen() {
               letterSpacing: 1.2,
             }}
           >
-            HOMEWISE
+            PROPERTY JOURNAL
           </Text>
           <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900", marginTop: 6 }}>
             Notification Settings
@@ -214,7 +214,7 @@ export default function NotificationSettingsScreen() {
                 <Text style={styles.cardTitle}>Push Notifications</Text>
               </View>
               <Text style={[styles.muted, { marginTop: 6 }]}>
-                Master switch for all HomeWise push notifications
+                Master switch for all Property Journal push notifications
               </Text>
             </View>
             <Switch

@@ -48,7 +48,7 @@ function profileRowFromAuthUser(authUser: User) {
   return {
     id: authUser.id,
     email,
-    name: (meta.name as string) ?? email.split("@")[0] ?? "HomeWise User",
+    name: (meta.name as string) ?? email.split("@")[0] ?? "Property Journal User",
     phone: (meta.phone as string) ?? null,
     avatar_uri: (meta.avatar_uri as string) ?? null,
     plan: owner ? FOUNDER_PLAN : "free",

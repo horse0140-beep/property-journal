@@ -28,7 +28,7 @@ export async function pickImageFromLibrary(options?: {
   if (status !== "granted") {
     Alert.alert(
       "Permission Required",
-      "HomeWise needs access to your photo library to attach images. Please enable it in Settings.",
+      "Property Journal needs access to your photo library to attach images. Please enable it in Settings.",
       [{ text: "OK" }]
     );
     return null;
@@ -69,7 +69,7 @@ export async function takePhoto(options?: { quality?: number; allowsEditing?: bo
   if (status !== "granted") {
     Alert.alert(
       "Camera Permission Required",
-      "HomeWise needs camera access to take photos. Please enable it in Settings.",
+      "Property Journal needs camera access to take photos. Please enable it in Settings.",
       [{ text: "OK" }]
     );
     return null;

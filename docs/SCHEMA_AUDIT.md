@@ -1,4 +1,4 @@
-# HomeWise Schema Audit
+# Property Journal Schema Audit
 
 Generated from full codebase scan of `supabase.from()` / `.upsert()` usage vs `supabase/migrations/`.
 

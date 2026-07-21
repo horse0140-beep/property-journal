@@ -29,6 +29,7 @@ import {
   logAuthRedirectUrl,
 } from "@/lib/authRedirect";
 import { ensureAuthProfileRow, requireAuthUserId } from "@/lib/authUser";
+import { isLikelyNetworkError } from "@/lib/connectivity";
 
 export type UserProfile = {
   id: string;
@@ -108,7 +109,7 @@ function mapProfileRow(row: ProfileRow, authUserId: string, email?: string): Use
   return {
     id: authUserId,
     email: row.email,
-    name: row.name ?? row.full_name ?? "HomeWise User",
+    name: row.name ?? row.full_name ?? "Property Journal User",
     phone: row.phone ?? "",
     avatarUri: row.avatar_uri ?? undefined,
     plan: owner ? FOUNDER_PLAN : (row.plan ?? "free"),
@@ -132,7 +133,7 @@ function profileFromAuthUser(authUser: User): UserProfile {
   return {
     id: authUser.id,
     email,
-    name: (meta.name as string) ?? authUser.email?.split("@")[0] ?? "HomeWise User",
+    name: (meta.name as string) ?? authUser.email?.split("@")[0] ?? "Property Journal User",
     phone: (meta.phone as string) ?? "",
     avatarUri: meta.avatar_uri as string | undefined,
     plan: owner ? FOUNDER_PLAN : "free",
@@ -286,7 +287,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isCurrent()) return;
 
     if (authError || !authUser) {
-      console.warn("[auth] getUser failed during applySession — signing out", authError?.message);
+      // Offline / transient network failures must NOT force sign-out when we
+      // already have a cached session user. Keep the user signed in so they
+      // can browse local/cached data.
+      const networkIssue = isLikelyNetworkError(authError);
+      const message = authError?.message ?? "";
+      const hardAuthFailure =
+        !networkIssue &&
+        (/refresh.?token|invalid.?jwt|session.?not.?found|user.?not.?found|not authenticated/i.test(
+          message
+        ) ||
+          !sessionUser);
+
+      if (!hardAuthFailure && sessionUser) {
+        console.warn(
+          "[auth] getUser failed (likely offline) — keeping cached session",
+          message
+        );
+        const email = sessionUser.email ?? "";
+        const isOwner = isOwnerAdminEmail(email);
+        setState({
+          isLoaded: true,
+          isSignedIn: true,
+          authUserId: sessionUser.id,
+          user: profileFromAuthUser(sessionUser),
+          role: isOwner ? SUPER_ADMIN_ROLE : null,
+          isAdmin: isOwner,
+          isOwner,
+        });
+        return;
+      }
+
+      console.warn("[auth] getUser failed during applySession — signing out", message);
       await supabase.auth.signOut().catch(() => {});
       if (!isCurrent()) return;
       setState({

@@ -177,7 +177,7 @@ export default function DeleteAccountScreen() {
                 This action is permanent
               </Text>
               <Text style={{ color: colors.textSecondary, lineHeight: 22, fontSize: 14 }}>
-                Deleting your HomeWise account will permanently remove all of your data from our servers.
+                Deleting your Property Journal account will permanently remove all of your data from our servers.
                 This cannot be undone.
               </Text>
             </View>
@@ -321,7 +321,7 @@ export default function DeleteAccountScreen() {
             <Text style={{ color: colors.textMuted, textAlign: "center", lineHeight: 22, marginBottom: 20 }}>
               Are you absolutely sure? Your account{" "}
               <Text style={{ fontWeight: "700", color: colors.textPrimary }}>{user.email}</Text> and all
-              associated HomeWise data will be permanently deleted.
+              associated Property Journal data will be permanently deleted.
             </Text>
 
             <Pressable

@@ -1,6 +1,5 @@
 {
   "rewrites": [
-    { "source": "/share/:token", "destination": "/" },
-    { "source": "/share/:token/", "destination": "/" }
+    { "source": "/((?!_expo|assets|favicon).*)", "destination": "/index.html" }
   ]
 }

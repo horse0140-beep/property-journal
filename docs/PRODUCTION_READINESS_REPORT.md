@@ -1,4 +1,4 @@
-# HomeWise Production Readiness Report
+# Property Journal Production Readiness Report
 
 **Generated:** June 15, 2026  
 **Scope:** Full schema reconciliation — application code vs Supabase migrations 000–020  

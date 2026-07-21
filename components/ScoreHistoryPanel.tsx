@@ -60,7 +60,7 @@ export function ScoreHistoryPanel({ propertyId, currentOverall }: Props) {
 
       {history.length < 2 ? (
         <Text style={styles.muted}>
-          Score history builds as you use HomeWise. Check back after adding records or completing tasks.
+          Score history builds as you use Property Journal. Check back after adding records or completing tasks.
         </Text>
       ) : (
         <>

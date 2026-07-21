@@ -37,11 +37,11 @@ export default function TermsScreen() {
         <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 24 }}>Last updated: June 1, 2026</Text>
 
         <Section title="Agreement to Terms">
-          <Para>By accessing or using HomeWise (&quot;the App&quot;), you agree to be bound by these Terms of Service. If you do not agree, do not use the App.</Para>
+          <Para>By accessing or using Property Journal (&quot;the App&quot;), you agree to be bound by these Terms of Service. If you do not agree, do not use the App.</Para>
         </Section>
 
         <Section title="Description of Service">
-          <Para>HomeWise provides a home management platform to track property maintenance, repairs, appliances, documents, and generate home history reports. The App includes an AI-powered assistant that uses your property data to answer home-related questions.</Para>
+          <Para>Property Journal provides a home management platform to track property maintenance, repairs, appliances, documents, and generate home history reports. The App includes an AI-powered assistant that uses your property data to answer home-related questions.</Para>
         </Section>
 
         <Section title="User Accounts">
@@ -61,7 +61,7 @@ export default function TermsScreen() {
         </Section>
 
         <Section title="User Content">
-          <Para>You retain ownership of all content you upload to HomeWise. By using the App, you grant HomeWise a limited, non-exclusive license to store, process, and display your content solely to provide the App&apos;s services.</Para>
+          <Para>You retain ownership of all content you upload to Property Journal. By using the App, you grant Property Journal a limited, non-exclusive license to store, process, and display your content solely to provide the App&apos;s services.</Para>
         </Section>
 
         <Section title="AI Assistant">
@@ -69,7 +69,7 @@ export default function TermsScreen() {
         </Section>
 
         <Section title="Home History Reports">
-          <Para>Reports reflect data entered by you. HomeWise does not verify the accuracy of property information or repair history. Consult a licensed real estate professional for transaction advice.</Para>
+          <Para>Reports reflect data entered by you. Property Journal does not verify the accuracy of property information or repair history. Consult a licensed real estate professional for transaction advice.</Para>
         </Section>
 
         <Section title="Subscriptions and Billing">
@@ -80,11 +80,11 @@ export default function TermsScreen() {
         </Section>
 
         <Section title="Disclaimers">
-          <Para>THE APP IS PROVIDED &quot;AS IS&quot; WITHOUT WARRANTIES OF ANY KIND. HOMEWISE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.</Para>
+          <Para>THE APP IS PROVIDED &quot;AS IS&quot; WITHOUT WARRANTIES OF ANY KIND. PROPERTY JOURNAL DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.</Para>
         </Section>
 
         <Section title="Limitation of Liability">
-          <Para>HOMEWISE&apos;S TOTAL LIABILITY FOR ANY CLAIMS SHALL NOT EXCEED THE AMOUNT YOU PAID IN THE 12 MONTHS PRECEDING THE CLAIM. HOMEWISE IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES.</Para>
+          <Para>PROPERTY JOURNAL&apos;S TOTAL LIABILITY FOR ANY CLAIMS SHALL NOT EXCEED THE AMOUNT YOU PAID IN THE 12 MONTHS PRECEDING THE CLAIM. PROPERTY JOURNAL IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES.</Para>
         </Section>
 
         <Section title="Termination">

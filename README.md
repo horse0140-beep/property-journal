@@ -1,4 +1,4 @@
-# HomeWise v2.0 — The CarFax for Your House™
+# Property Journal v2.0 — The CarFax for Your House™
 
 Complete, production-ready Expo SDK 54 app with authentication, real PDF generation,
 file uploads, push notifications, onboarding, legal pages, and AI assistant.
@@ -59,7 +59,7 @@ Or tap **"Use demo account"** on the sign-in screen.
 ### Features
 - 🏠 Home Health Score™ (0–100) computed from real data
 - 📊 Score breakdown: Maintenance, Appliances, Repairs, Warranty, Inspections
-- 🏅 HomeWise Certified™ badge (score ≥ 85)
+- 🏅 Property Journal Certified™ badge (score ≥ 85)
 - 📄 Real PDF generation with expo-print (professional branded layout)
 - 📱 Real file upload — PDFs and images stored locally via expo-document-picker
 - 📸 Camera + photo library via expo-image-picker
@@ -148,5 +148,5 @@ homewise/
 
 ---
 
-*HomeWise™ — The CarFax for Your House*
-*© 2026 HomeWise Inc.*
+*Property Journal™ — The CarFax for Your House*
+*© 2026 Property Journal*

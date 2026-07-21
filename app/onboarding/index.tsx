@@ -114,7 +114,7 @@ export default function OnboardingScreen() {
               <Ionicons name="home" size={52} color="#fff" />
             </View>
             <Text style={{ color: colors.textPrimary, fontSize: 30, fontWeight: "900", textAlign: "center", lineHeight: 36 }}>
-              Welcome to HomeWise{user?.name ? `,\n${user.name.split(" ")[0]}` : ""}!
+              Welcome to Property Journal{user?.name ? `,\n${user.name.split(" ")[0]}` : ""}!
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 16, textAlign: "center", marginTop: 14, lineHeight: 24 }}>
               You&apos;re about to create the most complete record of your home ever made.
@@ -245,7 +245,7 @@ export default function OnboardingScreen() {
             <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 1, marginBottom: 8 }}>STEP 3 OF 3</Text>
             <Text style={{ color: colors.textPrimary, fontSize: 28, fontWeight: "900", textAlign: "center" }}>Stay on top of it all</Text>
             <Text style={{ color: colors.textMuted, fontSize: 16, textAlign: "center", marginTop: 14, lineHeight: 24 }}>
-              HomeWise sends smart reminders so you never miss maintenance or let a warranty expire.
+              Property Journal sends smart reminders so you never miss maintenance or let a warranty expire.
             </Text>
             <View style={{ marginTop: 32, gap: 14, width: "100%" }}>
               {[
