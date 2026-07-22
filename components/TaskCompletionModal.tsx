@@ -131,13 +131,21 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
       return;
     }
 
+    // Live schema has no maintenance_items.photo_urls or related photo table.
+    if (photoUris.length > 0) {
+      notifyUser(
+        "Completion photos are not available yet",
+        "Your completion will still be saved without photos."
+      );
+    }
+
     savingRef.current = true;
     setSaving(true);
     try {
       await onSubmit({
         completedAt,
         completionNotes: notes.trim(),
-        photoUris,
+        photoUris: [],
         outcome,
         nextDue: outcome === "reschedule" ? nextDue : undefined,
         intervalDays: outcome === "reschedule" ? intervalDays : undefined,
@@ -190,6 +198,9 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
       />
 
       <Text style={styles.label}>Photos (optional)</Text>
+      <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 8 }}>
+        Completion photos are not available yet on this account schema.
+      </Text>
       <View style={{ flexDirection: "row", gap: 8 }}>
         {Platform.OS !== "web" ? (
           <Pressable

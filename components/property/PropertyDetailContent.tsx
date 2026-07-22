@@ -619,6 +619,12 @@ export default function PropertyDetailContent({
         }
         const status = computeMaintenanceStatus(nextDueIso);
         const intervalDays = mIntervalDays && mIntervalDays > 0 ? mIntervalDays : 180;
+        if (mPhotoUris.length > 0) {
+          notifyUser(
+            "Completion photos are not available yet",
+            "Your task will still be saved without photos."
+          );
+        }
         if (editingId) {
           await updateMaintenanceItem(editingId, {
             title: mTitle,
@@ -628,7 +634,6 @@ export default function PropertyDetailContent({
             notes: mNotes,
             priority: mPriority,
             status,
-            photoUris: mPhotoUris,
             intervalDays,
             recurring: true,
           });
@@ -645,7 +650,6 @@ export default function PropertyDetailContent({
             recurring: true,
             intervalDays,
             priority: mPriority,
-            photoUris: mPhotoUris,
           });
         }
       } else if (activeModal === "repair") {
@@ -2072,7 +2076,6 @@ export default function PropertyDetailContent({
           await completeMaintenanceItem(completeTarget.id, {
             completedAt: payload.completedAt,
             completionNotes: payload.completionNotes,
-            photoUris: payload.photoUris,
             outcome: payload.outcome,
             nextDue: payload.nextDue,
             intervalDays: payload.intervalDays,

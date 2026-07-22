@@ -484,53 +484,15 @@ export function HomeWiseProvider({
       },
 
       addMaintenanceItem: async (item) => {
-        const newItem = { ...item, id: uuid() };
+        const { photoUris: _ignoredPhotos, ...safeItem } = item;
+        const newItem = { ...safeItem, id: uuid() };
         setState((s) => ({ ...s, maintenanceItems: [newItem, ...s.maintenanceItems] }));
         bumpScore(item.propertyId);
         if (!isSignedIn) return newItem;
         await assertOnlineForWrite();
-        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
         try {
           const userId = await requireAuthUserId();
-          let payload = newItem;
-          const localPhotos = (item.photoUris ?? []).filter((u) => u?.trim());
-          if (localPhotos.length) {
-            const bucket = getPhotoBucket("property");
-            const uploaded: string[] = [];
-            for (let i = 0; i < localPhotos.length; i++) {
-              const uri = localPhotos[i];
-              if (isRemoteUri(uri)) {
-                uploaded.push(uri);
-                continue;
-              }
-              const result = await uploadLocalFile(
-                userId,
-                bucket,
-                uri,
-                `maintenance_${newItem.id}_${i}.jpg`,
-                undefined,
-                "image/jpeg",
-                [item.propertyId, newItem.id]
-              );
-              uploadedPaths.push({ bucket: result.bucket, path: result.path });
-              if (!result.url?.trim() || !isRemoteUri(result.url)) {
-                throw new Error("Maintenance photo upload did not return a usable URL.");
-              }
-              uploaded.push(result.url);
-            }
-            payload = { ...payload, photoUris: uploaded };
-          }
-
-          let created: MaintenanceItem;
-          try {
-            created = await maintenanceService.createMaintenanceItem(userId, payload);
-          } catch (insertError) {
-            for (const u of uploadedPaths) {
-              await deleteStorageObject(u.bucket, u.path).catch(() => undefined);
-            }
-            throw insertError;
-          }
-
+          const created = await maintenanceService.createMaintenanceItem(userId, newItem);
           setState((s) => ({
             ...s,
             maintenanceItems: s.maintenanceItems.map((m) => (m.id === newItem.id ? created : m)),
@@ -547,67 +509,22 @@ export function HomeWiseProvider({
 
       updateMaintenanceItem: async (id, item) => {
         const previous = stateRef.current.maintenanceItems.find((m) => m.id === id);
+        const { photoUris: _ignoredPhotos, ...safeItem } = item;
         setState((s) => ({
           ...s,
-          maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...item } : m)),
+          maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...safeItem } : m)),
         }));
         const pid = item.propertyId ?? previous?.propertyId;
         if (pid) bumpScore(pid);
         if (!isSignedIn) return;
         await assertOnlineForWrite();
-        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
         try {
           const userId = await requireAuthUserId();
-          const updates: Partial<MaintenanceItem> = { ...item };
-          if (item.photoUris !== undefined) {
-            const bucket = getPhotoBucket("property");
-            const uploaded: string[] = [];
-            for (let i = 0; i < item.photoUris.length; i++) {
-              const uri = item.photoUris[i];
-              if (!uri?.trim()) continue;
-              if (isRemoteUri(uri)) {
-                uploaded.push(uri);
-                continue;
-              }
-              const result = await uploadLocalFile(
-                userId,
-                bucket,
-                uri,
-                `maintenance_${id}_${i}_${Date.now()}.jpg`,
-                undefined,
-                "image/jpeg",
-                [previous?.propertyId ?? "", id]
-              );
-              uploadedPaths.push({ bucket: result.bucket, path: result.path });
-              if (!result.url?.trim() || !isRemoteUri(result.url)) {
-                throw new Error("Maintenance photo upload did not return a usable URL.");
-              }
-              uploaded.push(result.url);
-            }
-            updates.photoUris = uploaded;
-          }
-
-          try {
-            const saved = await maintenanceService.updateMaintenanceItem(userId, id, updates);
-            setState((s) => ({
-              ...s,
-              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
-            }));
-
-            if (item.photoUris !== undefined && previous?.photoUris?.length) {
-              const nextSet = new Set(updates.photoUris ?? []);
-              for (const url of previous.photoUris) {
-                if (url && isRemoteUri(url) && !nextSet.has(url)) {
-                  await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
-                }
-              }
-            }
-          } catch (updateError) {
-            for (const u of uploadedPaths) {
-              await deleteStorageObject(u.bucket, u.path).catch(() => undefined);
-            }
-            throw updateError;
-          }
+          const saved = await maintenanceService.updateMaintenanceItem(userId, id, safeItem);
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
+          }));
         } catch (e) {
           if (previous) {
             setState((s) => ({
@@ -626,14 +543,7 @@ export function HomeWiseProvider({
         if (pid) bumpScore(pid);
         if (isSignedIn && item) {
           void requireAuthUserId()
-            .then(async (userId) => {
-              await maintenanceService.deleteMaintenanceItem(userId, id);
-              for (const url of item.photoUris ?? []) {
-                if (url && isRemoteUri(url)) {
-                  await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
-                }
-              }
-            })
+            .then((userId) => maintenanceService.deleteMaintenanceItem(userId, id))
             .catch((e) => syncError("Delete maintenance", e));
         }
       },
@@ -685,11 +595,7 @@ export function HomeWiseProvider({
             : `Completed (${lastCompleted}): ${completionNotes}`;
         }
 
-        const photoUris =
-          options?.photoUris !== undefined
-            ? options.photoUris.filter((u) => Boolean(u?.trim()))
-            : item.photoUris;
-
+        // Explicit DB fields only — never photo_urls / archived (not on live schema).
         const updates: Partial<MaintenanceItem> = {
           lastCompleted,
           nextDue,
@@ -697,7 +603,6 @@ export function HomeWiseProvider({
           recurring,
           intervalDays,
           notes,
-          photoUris,
         };
 
         if (outcome === "delete") {
@@ -722,44 +627,22 @@ export function HomeWiseProvider({
           await assertOnlineForWrite();
           const userId = await requireAuthUserId();
 
-          let payload: Partial<MaintenanceItem> = { ...updates };
-          if (photoUris?.length) {
-            const bucket = getPhotoBucket("property");
-            const uploaded: string[] = [];
-            for (let i = 0; i < photoUris.length; i++) {
-              const uri = photoUris[i];
-              if (!uri?.trim()) continue;
-              if (isRemoteUri(uri)) {
-                uploaded.push(uri);
-                continue;
-              }
-              const result = await uploadLocalFile(
-                userId,
-                bucket,
-                uri,
-                `maintenance_${id}_complete_${i}_${Date.now()}.jpg`,
-                undefined,
-                "image/jpeg",
-                [item.propertyId, id]
-              );
-              if (!result.url?.trim() || !isRemoteUri(result.url)) {
-                await deleteStorageObject(result.bucket, result.path).catch(() => undefined);
-                throw new Error("Completion photo upload did not return a usable URL.");
-              }
-              uploaded.push(result.url);
-            }
-            payload = { ...payload, photoUris: uploaded };
-          }
+          // Completion photos are not persisted: live maintenance_items has no photo_urls
+          // and no related maintenance photo table. Never include photoUris in the write.
+          const payload: Partial<MaintenanceItem> = {
+            lastCompleted: updates.lastCompleted,
+            nextDue: updates.nextDue,
+            status: updates.status,
+            recurring: updates.recurring,
+            intervalDays: updates.intervalDays,
+            notes: updates.notes,
+          };
+          console.log("[MAINTENANCE COMPLETE PAYLOAD]", { id, outcome, payload });
 
           const saved = await maintenanceService.updateMaintenanceItem(userId, id, payload);
 
           if (outcome === "delete") {
             await maintenanceService.deleteMaintenanceItem(userId, id);
-            for (const url of payload.photoUris ?? item.photoUris ?? []) {
-              if (url && isRemoteUri(url)) {
-                await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
-              }
-            }
             void refreshData().catch(() => undefined);
             return null;
           }

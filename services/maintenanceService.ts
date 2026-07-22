@@ -105,9 +105,7 @@ export async function updateMaintenanceItem(
     if (updates.intervalDays !== undefined) setNumericFieldOmit(row, "interval_days", updates.intervalDays);
     if (updates.priority !== undefined) row.priority = updates.priority;
     if (updates.recurring !== undefined) row.recurring = Boolean(updates.recurring);
-    if (updates.photoUris !== undefined) {
-      row.photo_urls = updates.photoUris.map((u) => String(u ?? "").trim()).filter(Boolean);
-    }
+    // Do not map photoUris → photo_urls. Live maintenance_items has no photo_urls column.
 
     async function fetchCurrent(): Promise<MaintenanceItem> {
       const fetched = await fetchInsertedRow("maintenance_items", id, userId);

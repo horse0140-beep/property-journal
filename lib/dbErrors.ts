@@ -27,7 +27,6 @@ export const MAINTENANCE_OPTIONAL_COLUMNS = [
   "notes",
   "category",
   "status",
-  "photo_urls",
 ] as const;
 
 export const REPAIR_OPTIONAL_COLUMNS = [

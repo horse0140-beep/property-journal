@@ -202,9 +202,6 @@ export { propertyPartialToRow };
 
 export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem {
   const interval = row.interval_days;
-  const photoUris = Array.isArray(row.photo_urls)
-    ? (row.photo_urls as string[]).map((u) => String(u ?? "").trim()).filter(Boolean)
-    : [];
   return {
     id: row.id as string,
     propertyId: row.property_id as string,
@@ -218,7 +215,6 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
     recurring: Boolean(row.recurring),
     intervalDays: interval === null || interval === undefined ? undefined : Number(interval),
     priority: (row.priority as MaintenanceItem["priority"]) ?? "medium",
-    photoUris,
   };
 }
 
@@ -245,9 +241,8 @@ export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<str
 
   if (m.recurring === true) row.recurring = true;
 
-  if (m.photoUris !== undefined) {
-    row.photo_urls = m.photoUris.filter((u) => Boolean(String(u ?? "").trim()));
-  }
+  // Live maintenance_items has no photo_urls column (see production_schema_audit /
+  // verify_maintenance_completion_schema.sql). Never write photo_urls here.
 
   return row;
 }

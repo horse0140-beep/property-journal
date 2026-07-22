@@ -29,7 +29,7 @@ export type MaintenanceItem = {
   recurring: boolean;
   intervalDays?: number;
   priority: "low" | "medium" | "high";
-  /** Stored maintenance photo URLs (maintenance_items.photo_urls). */
+  /** UI-only; live maintenance_items has no photo_urls column. */
   photoUris?: string[];
 };
 
