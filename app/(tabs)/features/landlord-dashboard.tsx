@@ -9,7 +9,7 @@ import { useHomeWise } from "@/context/HomeWiseContext";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LandlordDashboardScreen() {
-  const { properties, maintenanceItems, repairs, getPropertyScore } = useHomeWise();
+  const { properties, maintenanceItems, repairs, getPropertyScore, selectProperty } = useHomeWise();
   const { user } = useAuth();
 
   const rentals = properties.filter((p) => p.type === "rental" || p.type === "investment");
@@ -20,6 +20,11 @@ export default function LandlordDashboardScreen() {
   const rentalRepairs = repairs.filter((r) =>
     rentals.some((p) => p.id === r.propertyId)
   );
+
+  function openProperty(propertyId: string) {
+    selectProperty(propertyId);
+    router.push(`/properties/${propertyId}`);
+  }
 
   return (
     <Screen>
@@ -88,16 +93,28 @@ export default function LandlordDashboardScreen() {
               const score = getPropertyScore(p.id);
               const maint = rentalMaint.filter((m) => m.propertyId === p.id);
               return (
-                <Card key={p.id}>
-                  <Text style={styles.cardTitle}>{p.address}</Text>
-                  <Text style={styles.muted}>
-                    {p.city}, {p.state} · Score {score.overall}/100
-                  </Text>
-                  <Text style={[styles.muted, { marginTop: 6 }]}>
-                    {maint.length} maintenance items ·{" "}
-                    {maint.filter((m) => m.status === "Overdue").length} overdue
-                  </Text>
-                </Card>
+                <Pressable
+                  key={p.id}
+                  onPress={() => openProperty(p.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${p.address}`}
+                >
+                  <Card>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle}>{p.address}</Text>
+                        <Text style={styles.muted}>
+                          {p.city}, {p.state} · Score {score.overall}/100
+                        </Text>
+                        <Text style={[styles.muted, { marginTop: 6 }]}>
+                          {maint.length} maintenance items ·{" "}
+                          {maint.filter((m) => m.status === "Overdue").length} overdue
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    </View>
+                  </Card>
+                </Pressable>
               );
             })
           )}

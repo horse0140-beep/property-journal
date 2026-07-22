@@ -107,6 +107,14 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+      {/* Authenticated nested stacks — keep bottom tabs visible (not shown as tab icons). */}
+      <Tabs.Screen name="features" options={{ href: null, title: "Features" }} />
+      <Tabs.Screen name="settings" options={{ href: null, title: "Settings" }} />
+      <Tabs.Screen name="notifications" options={{ href: null, title: "Notifications" }} />
+      <Tabs.Screen name="score" options={{ href: null, title: "Score" }} />
+      <Tabs.Screen name="subscriptions" options={{ href: null, title: "Subscriptions" }} />
+      <Tabs.Screen name="account" options={{ href: null, title: "Account" }} />
     </Tabs>
   );
 }

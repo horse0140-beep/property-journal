@@ -203,14 +203,7 @@ export default function RootLayout() {
               <Stack.Screen name="ai" options={{ animation: "slide_from_bottom" }} />
               <Stack.Screen name="vault/photos" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="admin" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="features" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="account" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="subscriptions" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="properties" options={{ animation: "slide_from_right" }} />
               <Stack.Screen name="share" options={{ animation: "fade" }} />
-              <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="score" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
             </Stack>
           </AuthGate>
         </AppProviders>

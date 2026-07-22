@@ -25,6 +25,7 @@ import { Card } from "@/components/Card";
 import { ScoreRing } from "@/components/ScoreRing";
 import { WebHomeButton, goBackOrHome } from "@/components/WebHomeButton";
 import { colors, styles } from "@/constants/theme";
+import { tabScrollPadding } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import type { MaintenanceItem, Property } from "@/context/HomeWiseContext";
 import type { Contractor, Document } from "@/data/demoData";
@@ -1193,7 +1194,7 @@ export default function PropertyDetailContent({
                   : "";
 
   return (
-    <Screen noPad>
+    <Screen noPad tabScreen>
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 16, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Pressable onPress={goBackOrHome} hitSlop={12} accessibilityLabel="Back">
@@ -1257,7 +1258,7 @@ export default function PropertyDetailContent({
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: tabScrollPadding(insets.bottom) }}>
         {section !== "overview" && addLabel ? (
           <View style={[styles.rowBetween, { marginBottom: 14 }]}>
             <Text style={styles.sectionHeader}>{sectionMeta?.label}</Text>
