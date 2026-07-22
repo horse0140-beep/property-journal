@@ -23,6 +23,7 @@ export default function PropertyViewScreen() {
     docId?: string | string[];
     photoId?: string | string[];
     applianceId?: string | string[];
+    add?: string | string[];
   }>();
   const id = normalizeRouteParam(params.id);
   const section = normalizeRouteParam(params.section);
@@ -32,6 +33,7 @@ export default function PropertyViewScreen() {
   const docId = normalizeRouteParam(params.docId);
   const photoId = normalizeRouteParam(params.photoId);
   const applianceId = normalizeRouteParam(params.applianceId);
+  const add = normalizeRouteParam(params.add);
   const { selectProperty } = useHomeWise();
   const selectPropertyRef = useRef(selectProperty);
   selectPropertyRef.current = selectProperty;
@@ -58,6 +60,7 @@ export default function PropertyViewScreen() {
       openDocId={docId}
       openPhotoId={photoId}
       openApplianceId={applianceId}
+      openAddKind={add === "task" ? "maintenance" : add === "appliance" || add === "repair" ? add : undefined}
     />
   );
 }

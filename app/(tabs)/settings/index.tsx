@@ -341,12 +341,12 @@ export default function SettingsScreen() {
           <Row
             icon="help-circle-outline"
             label="Help / FAQ"
-            onPress={() =>
-              Alert.alert(
-                "Help Center",
-                "For help and support, email us at:\n\nsupport@homewise.app\n\nWe typically respond within 24 hours."
-              )
-            }
+            onPress={() => router.push("/settings/help")}
+          />
+          <Row
+            icon="book-outline"
+            label="How to Use"
+            onPress={() => router.push("/settings/help")}
           />
           <Row
             icon="chatbubble-ellipses-outline"

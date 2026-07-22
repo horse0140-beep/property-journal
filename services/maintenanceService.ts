@@ -108,6 +108,9 @@ export async function updateMaintenanceItem(
     if (updates.photoUris !== undefined) {
       row.photo_urls = updates.photoUris.map((u) => String(u ?? "").trim()).filter(Boolean);
     }
+    if (updates.archived !== undefined) {
+      row.archived = Boolean(updates.archived);
+    }
 
     async function fetchCurrent(): Promise<MaintenanceItem> {
       const fetched = await fetchInsertedRow("maintenance_items", id, userId);

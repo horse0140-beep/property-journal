@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardModal } from "@/components/KeyboardModal";
 import { formatPickerDateDisplay, toIsoDateValue } from "@/components/DatePickerField";
 import { colors, styles } from "@/constants/theme";
 import type { MaintenanceItem } from "@/context/HomeWiseContext";
-import { confirmDestructive, notifyUser } from "@/lib/userFeedback";
+import { confirmDestructive } from "@/lib/userFeedback";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 
 type MaintenanceDetailModalProps = {
@@ -13,7 +12,8 @@ type MaintenanceDetailModalProps = {
   item: MaintenanceItem | null;
   onClose: () => void;
   onEdit: (item: MaintenanceItem) => void;
-  onComplete: (id: string) => Promise<MaintenanceItem | null | void>;
+  /** Opens the completion workflow (date, notes, next-step choice). */
+  onRequestComplete: (item: MaintenanceItem) => void;
   onDelete: (id: string) => void;
 };
 
@@ -60,23 +60,13 @@ export function MaintenanceDetailModal({
   item,
   onClose,
   onEdit,
-  onComplete,
+  onRequestComplete,
   onDelete,
 }: MaintenanceDetailModalProps) {
-  const [completing, setCompleting] = useState(false);
-  const completingRef = useRef(false);
-
-  useEffect(() => {
-    if (!visible) {
-      setCompleting(false);
-      completingRef.current = false;
-    }
-  }, [visible]);
-
   if (!item) return null;
 
   const notes = String(item.notes ?? "").trim();
-  const canComplete = item.status !== "Completed";
+  const canComplete = !item.archived && item.status !== "Completed";
   const photos = item.photoUris ?? [];
 
   async function handleDelete() {
@@ -86,46 +76,22 @@ export function MaintenanceDetailModal({
     onClose();
   }
 
-  async function handleComplete() {
-    if (completingRef.current || completing) return;
-    completingRef.current = true;
-    setCompleting(true);
-    try {
-      const saved = await onComplete(item!.id);
-      const next = saved && typeof saved === "object" ? saved : null;
-      if (next?.recurring) {
-        notifyUser(
-          "Task marked complete",
-          next.nextDue ? `Next due ${next.nextDue}` : item!.title
-        );
-      } else {
-        notifyUser("Task marked complete", item!.title);
-        onClose();
-      }
-    } catch (e) {
-      notifyUser(
-        "Could not complete",
-        e instanceof Error ? e.message : "Please try again when you are online."
-      );
-    } finally {
-      completingRef.current = false;
-      setCompleting(false);
-    }
-  }
-
   return (
     <KeyboardModal visible={visible} onRequestClose={onClose}>
       <View style={styles.rowBetween}>
         <Text style={[styles.modalTitle, { flex: 1, marginRight: 12 }]} numberOfLines={2}>
           {item.title}
         </Text>
-        <Pressable onPress={onClose} hitSlop={8} disabled={completing}>
+        <Pressable onPress={onClose} hitSlop={8}>
           <Ionicons name="close" size={24} color={colors.textMuted} />
         </Pressable>
       </View>
 
       <DetailRow label="Category" value={item.category} />
-      <DetailRow label="Status" value={item.status} />
+      <DetailRow
+        label="Status"
+        value={item.archived ? "Archived" : item.status}
+      />
       <DetailRow label="Priority" value={formatPriority(item.priority)} />
       <DetailRow label="Next Due" value={item.nextDue || "—"} />
       <View style={{ marginBottom: 12 }}>
@@ -160,8 +126,7 @@ export function MaintenanceDetailModal({
       </View>
 
       <Pressable
-        style={[styles.primaryButton, completing && { opacity: 0.6 }]}
-        disabled={completing}
+        style={styles.primaryButton}
         onPress={() => {
           onEdit(item);
         }}
@@ -170,27 +135,19 @@ export function MaintenanceDetailModal({
         <Text style={styles.primaryButtonText}>Edit</Text>
       </Pressable>
 
-      {canComplete ? (
+      {canComplete && !item.archived ? (
         <Pressable
-          style={[styles.secondaryButton, { marginTop: 10 }, completing && { opacity: 0.6 }]}
-          disabled={completing}
+          style={[styles.secondaryButton, { marginTop: 10 }]}
           onPress={() => {
-            void handleComplete();
+            onClose();
+            onRequestComplete(item);
           }}
         >
-          {completing ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Text style={styles.secondaryButtonText}>Mark Complete</Text>
-          )}
+          <Text style={styles.secondaryButtonText}>Mark Complete</Text>
         </Pressable>
       ) : null}
 
-      <Pressable
-        style={[styles.secondaryButton, { marginTop: 10 }]}
-        onPress={onClose}
-        disabled={completing}
-      >
+      <Pressable style={[styles.secondaryButton, { marginTop: 10 }]} onPress={onClose}>
         <Text style={styles.secondaryButtonText}>Close</Text>
       </Pressable>
 
@@ -199,7 +156,6 @@ export function MaintenanceDetailModal({
         onPress={() => {
           void handleDelete();
         }}
-        disabled={completing}
       >
         <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete</Text>
       </Pressable>

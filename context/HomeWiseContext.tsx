@@ -38,6 +38,7 @@ import {
   todayIsoDate,
 } from "@/lib/dateForDatabase";
 import { assertOnlineForWrite } from "@/lib/connectivity";
+import type { CompleteMaintenanceOptions } from "@/lib/maintenanceComplete";
 import type {
   Property,
   MaintenanceItem,
@@ -104,7 +105,10 @@ type AppContextValue = AppState & {
   addMaintenanceItem: (item: Omit<MaintenanceItem, "id">) => Promise<MaintenanceItem>;
   updateMaintenanceItem: (id: string, item: Partial<MaintenanceItem>) => Promise<void>;
   deleteMaintenanceItem: (id: string) => void;
-  completeMaintenanceItem: (id: string) => Promise<MaintenanceItem | null>;
+  completeMaintenanceItem: (
+    id: string,
+    options?: CompleteMaintenanceOptions
+  ) => Promise<MaintenanceItem | null>;
   addRepair: (r: Omit<Repair, "id">) => Promise<Repair>;
   updateRepair: (id: string, r: Partial<Repair>) => Promise<void>;
   deleteRepair: (id: string) => void;
@@ -634,58 +638,75 @@ export function HomeWiseProvider({
         }
       },
 
-      completeMaintenanceItem: async (id) => {
+      completeMaintenanceItem: async (id, options) => {
         if (completingMaintenanceRef.current) {
-          console.log("[MAINTENANCE COMPLETE] skipped double tap", { id });
           return null;
         }
         completingMaintenanceRef.current = true;
 
         const item = stateRef.current.maintenanceItems.find((m) => m.id === id);
-        console.log("[MAINTENANCE COMPLETE START]", {
-          id,
-          title: item?.title,
-          recurring: item?.recurring,
-          intervalDays: item?.intervalDays,
-          status: item?.status,
-        });
 
         if (!item) {
           completingMaintenanceRef.current = false;
-          console.log("[MAINTENANCE COMPLETE FAILED]", { id, reason: "not_found" });
           throw new Error("Maintenance task not found.");
         }
 
         const previous = { ...item };
-        const lastCompleted = todayIsoDate();
+        const outcome = options?.outcome ?? (item.recurring ? "reschedule" : "history");
+        const lastCompleted = options?.completedAt?.trim() || todayIsoDate();
 
-        /**
-         * Consistent completion behavior:
-         * - Always set last_completed = today (ISO).
-         * - Non-recurring → status "Completed"; next_due unchanged.
-         * - Recurring → advance next_due by intervalDays from today, keep recurring=true,
-         *   set status from the new next_due (Upcoming / Due Soon / Overdue) so the
-         *   schedule continues instead of staying Completed forever.
-         */
         let nextDue = item.nextDue ?? "";
         let status: MaintenanceItem["status"] = "Completed";
+        let recurring = item.recurring;
+        let intervalDays = item.intervalDays;
+        let archived = false;
 
-        if (item.recurring) {
-          const interval = item.intervalDays && item.intervalDays > 0 ? item.intervalDays : 0;
-          if (interval > 0) {
+        if (outcome === "history") {
+          status = "Completed";
+          recurring = false;
+          archived = false;
+        } else if (outcome === "archive") {
+          status = "Completed";
+          recurring = false;
+          archived = true;
+        } else {
+          // reschedule
+          nextDue = options?.nextDue?.trim() || "";
+          if (!nextDue) {
+            const interval = item.intervalDays && item.intervalDays > 0 ? item.intervalDays : 30;
             nextDue = isoDateFromTimestamp(Date.now() + interval * 86400000);
           }
+          if (options?.intervalDays && options.intervalDays > 0) {
+            intervalDays = options.intervalDays;
+          }
+          recurring = true;
+          archived = false;
           status = statusFromNextDue(nextDue);
         }
+
+        let notes = item.notes ?? "";
+        const completionNotes = options?.completionNotes?.trim();
+        if (completionNotes) {
+          notes = notes.trim()
+            ? `${notes.trim()}\n\nCompleted (${lastCompleted}): ${completionNotes}`
+            : `Completed (${lastCompleted}): ${completionNotes}`;
+        }
+
+        const photoUris =
+          options?.photoUris !== undefined
+            ? options.photoUris.filter((u) => Boolean(u?.trim()))
+            : item.photoUris;
 
         const updates: Partial<MaintenanceItem> = {
           lastCompleted,
           nextDue,
           status,
-          recurring: item.recurring,
+          recurring,
+          intervalDays,
+          archived,
+          notes,
+          photoUris,
         };
-
-        console.log("[MAINTENANCE COMPLETE PAYLOAD]", { id, ...updates });
 
         setState((s) => ({
           ...s,
@@ -695,30 +716,51 @@ export function HomeWiseProvider({
 
         try {
           if (!isSignedIn) {
-            const local = { ...item, ...updates } as MaintenanceItem;
-            console.log("[MAINTENANCE COMPLETE SUCCESS]", { mode: "local", item: local });
-            return local;
+            return { ...item, ...updates } as MaintenanceItem;
           }
 
           await assertOnlineForWrite();
           const userId = await requireAuthUserId();
-          const saved = await maintenanceService.updateMaintenanceItem(userId, id, updates);
+
+          let payload = { ...updates };
+          if (photoUris?.length) {
+            const bucket = getPhotoBucket("property");
+            const uploaded: string[] = [];
+            for (let i = 0; i < photoUris.length; i++) {
+              const uri = photoUris[i];
+              if (!uri?.trim()) continue;
+              if (isRemoteUri(uri)) {
+                uploaded.push(uri);
+                continue;
+              }
+              const result = await uploadLocalFile(
+                userId,
+                bucket,
+                uri,
+                `maintenance_${id}_complete_${i}_${Date.now()}.jpg`,
+                undefined,
+                "image/jpeg",
+                [item.propertyId, id]
+              );
+              if (!result.url?.trim() || !isRemoteUri(result.url)) {
+                await deleteStorageObject(result.bucket, result.path).catch(() => undefined);
+                throw new Error("Completion photo upload did not return a usable URL.");
+              }
+              uploaded.push(result.url);
+            }
+            payload = { ...payload, photoUris: uploaded };
+          }
+
+          const saved = await maintenanceService.updateMaintenanceItem(userId, id, payload);
 
           setState((s) => ({
             ...s,
             maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
           }));
 
-          console.log("[MAINTENANCE COMPLETE SUCCESS]", { id, saved });
-          // Background refresh — do not block UI or close the detail modal.
-          void refreshData().catch((e) => console.warn("[MAINTENANCE COMPLETE] refresh failed", e));
+          void refreshData().catch(() => undefined);
           return saved;
         } catch (e) {
-          console.log("[MAINTENANCE COMPLETE FAILED]", {
-            id,
-            error: e instanceof Error ? e.message : String(e),
-            code: e && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined,
-          });
           setState((s) => ({
             ...s,
             maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),

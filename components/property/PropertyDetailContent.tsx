@@ -36,6 +36,9 @@ import { deleteRepairPhotoObject } from "@/lib/repairPhotos";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 import { RepairDetailModal } from "@/components/RepairDetailModal";
 import { MaintenanceDetailModal } from "@/components/MaintenanceDetailModal";
+import { TaskCompletionModal, type TaskCompletionPayload } from "@/components/TaskCompletionModal";
+import { RelativeDueDateField } from "@/components/RelativeDueDateField";
+import { HelpHint } from "@/components/HelpHint";
 import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 import type { Repair } from "@/data/demoData";
 import { matchesPropertyId } from "@/types/database";
@@ -159,6 +162,7 @@ export default function PropertyDetailContent({
   openDocId,
   openPhotoId,
   openApplianceId,
+  openAddKind,
 }: {
   propertyId: string;
   initialSection?: PropertySection;
@@ -168,6 +172,7 @@ export default function PropertyDetailContent({
   openDocId?: string;
   openPhotoId?: string;
   openApplianceId?: string;
+  openAddKind?: "maintenance" | "appliance" | "repair";
 }) {
   const insets = useSafeAreaInsets();
   const { canAccess, showUpgrade } = useUpgrade();
@@ -223,6 +228,9 @@ export default function PropertyDetailContent({
   const [mNotes, setMNotes] = useState("");
   const [mPriority, setMPriority] = useState<"low" | "medium" | "high">("medium");
   const [mPhotoUris, setMPhotoUris] = useState<string[]>([]);
+  const [mIntervalDays, setMIntervalDays] = useState<number | undefined>(180);
+  const [taskFilter, setTaskFilter] = useState<"upcoming" | "overdue" | "completed" | "active">("upcoming");
+  const [completeTarget, setCompleteTarget] = useState<MaintenanceItem | null>(null);
   const [viewRepair, setViewRepair] = useState<Repair | null>(null);
   const [viewMaintenance, setViewMaintenance] = useState<MaintenanceItem | null>(null);
 
@@ -290,10 +298,11 @@ export default function PropertyDetailContent({
   // Deep-link openers from Home / alerts (taskId, repairId, docId, photoId, applianceId).
   const openedDeepLinkRef = useRef<string | null>(null);
   useEffect(() => {
-    const key = [openTaskId, openRepairId, openDocId, openPhotoId, openApplianceId].filter(Boolean).join("|");
+    const key = [openTaskId, openRepairId, openDocId, openPhotoId, openApplianceId]
+      .filter(Boolean)
+      .join("|");
     if (!key || openedDeepLinkRef.current === key) return;
     openedDeepLinkRef.current = key;
-
     if (openTaskId) {
       const task = maintenanceItems.find((m) => m.id === openTaskId && matchesPropertyId(m.propertyId, propertyId));
       if (task) {
@@ -408,6 +417,7 @@ export default function PropertyDetailContent({
     setMCategory("General");
     setMPriority("medium");
     setMPhotoUris([]);
+    setMIntervalDays(180);
     setRTitle("");
     setRDate("");
     setRCost("");
@@ -468,6 +478,25 @@ export default function PropertyDetailContent({
     setModal(kind);
   }
 
+  const openedAddRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openAddKind) return;
+    const key = `${propertyId}:${openAddKind}`;
+    if (openedAddRef.current === key) return;
+    openedAddRef.current = key;
+    setSection("maintenance");
+    if (openAddKind === "maintenance") {
+      setMaintenanceView("tasks");
+      openAdd("maintenance");
+    } else if (openAddKind === "appliance") {
+      setMaintenanceView("appliances");
+      openAdd("appliance");
+    } else {
+      setMaintenanceView("repairs");
+      openAdd("repair");
+    }
+  }, [openAddKind, propertyId]);
+
   function openEditMaintenance(item: MaintenanceItem) {
     setViewMaintenance(null);
     setEditingId(item.id);
@@ -478,6 +507,7 @@ export default function PropertyDetailContent({
     setMNotes(item.notes ?? "");
     setMPriority(item.priority);
     setMPhotoUris([...(item.photoUris ?? [])]);
+    setMIntervalDays(item.intervalDays ?? 180);
     setModal("maintenance");
   }
 
@@ -588,6 +618,7 @@ export default function PropertyDetailContent({
           return;
         }
         const status = computeMaintenanceStatus(nextDueIso);
+        const intervalDays = mIntervalDays && mIntervalDays > 0 ? mIntervalDays : 180;
         if (editingId) {
           await updateMaintenanceItem(editingId, {
             title: mTitle,
@@ -598,6 +629,9 @@ export default function PropertyDetailContent({
             priority: mPriority,
             status,
             photoUris: mPhotoUris,
+            intervalDays,
+            recurring: true,
+            archived: false,
           });
           saved = { id: editingId, title: mTitle };
         } else {
@@ -610,9 +644,10 @@ export default function PropertyDetailContent({
             status,
             notes: mNotes,
             recurring: true,
-            intervalDays: 180,
+            intervalDays,
             priority: mPriority,
             photoUris: mPhotoUris,
+            archived: false,
           });
         }
       } else if (activeModal === "repair") {
@@ -1050,8 +1085,43 @@ export default function PropertyDetailContent({
   }
 
   function renderMaintenance() {
+    const upcomingTasks = maint.filter(
+      (m) => m.status !== "Completed" && !m.archived && (m.status === "Upcoming" || m.status === "Due Soon")
+    );
+    const overdueTasks = maint.filter((m) => m.status === "Overdue" && !m.archived);
+    const completedTasks = maint.filter((m) => m.status === "Completed" || m.archived);
+    const filteredTasks =
+      taskFilter === "upcoming"
+        ? upcomingTasks
+        : taskFilter === "overdue"
+          ? overdueTasks
+          : taskFilter === "completed"
+            ? completedTasks
+            : maint.filter((m) => m.status !== "Completed" && !m.archived);
+
     return (
       <>
+        <HelpHint text="How maintenance tasks work" />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          <Pressable
+            onPress={() => openAdd("maintenance")}
+            style={[styles.primaryButton, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 12 }]}
+          >
+            <Text style={styles.primaryButtonText}>+ Add Task</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => openAdd("appliance")}
+            style={[styles.secondaryButton, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 12 }]}
+          >
+            <Text style={styles.secondaryButtonText}>+ Add Appliance</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => openAdd("repair")}
+            style={[styles.secondaryButton, { marginTop: 0, paddingVertical: 8, paddingHorizontal: 12 }]}
+          >
+            <Text style={styles.secondaryButtonText}>+ Log Repair</Text>
+          </Pressable>
+        </View>
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
           {(["tasks", "repairs", "appliances"] as const).map((v) => (
             <Pressable
@@ -1072,7 +1142,7 @@ export default function PropertyDetailContent({
                 No appliances recorded.
               </Text>
               <Pressable style={styles.primaryButton} onPress={() => openAdd("appliance")}>
-                <Text style={styles.primaryButtonText}>Add Appliance</Text>
+                <Text style={styles.primaryButtonText}>Add an appliance</Text>
               </Pressable>
             </View>
           ) : (
@@ -1080,7 +1150,8 @@ export default function PropertyDetailContent({
               const thumb =
                 a.photoUris?.find((u) => Boolean(u?.trim())) || a.photoUri?.trim() || "";
               return (
-              <Card key={a.id} style={{ marginBottom: 10 }}>
+              <Pressable key={a.id} onPress={() => openEditAppliance(a)}>
+              <Card style={{ marginBottom: 10 }}>
                 <View style={styles.rowBetween}>
                   <View style={{ flexDirection: "row", flex: 1, gap: 10, alignItems: "center" }}>
                     {thumb ? (
@@ -1111,13 +1182,12 @@ export default function PropertyDetailContent({
                   </Pressable>
                 </View>
               </Card>
+              </Pressable>
               );
             })
           )
         ) : maintenanceView === "tasks" ? (
           (() => {
-            const activeTasks = maint.filter((m) => m.status !== "Completed");
-            const completedTasks = maint.filter((m) => m.status === "Completed");
             const renderTask = (item: MaintenanceItem) => (
               <Pressable
                 key={item.id}
@@ -1137,13 +1207,31 @@ export default function PropertyDetailContent({
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 6 }}>
-                      <Text style={statusBadge(item.status)}>{item.status}</Text>
+                      <Text style={statusBadge(item.status)}>
+                        {item.archived ? "Archived" : item.status}
+                      </Text>
                       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </View>
                   </View>
-                  <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
-                    View details
-                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+                    <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>View</Text>
+                    <Pressable
+                      onPress={() => {
+                        openEditMaintenance(item);
+                      }}
+                    >
+                      <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Edit</Text>
+                    </Pressable>
+                    {!item.archived && item.status !== "Completed" ? (
+                      <Pressable
+                        onPress={() => {
+                          setCompleteTarget(item);
+                        }}
+                      >
+                        <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Complete</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </Card>
               </Pressable>
             );
@@ -1155,7 +1243,7 @@ export default function PropertyDetailContent({
                     No maintenance tasks yet.
                   </Text>
                   <Pressable style={styles.primaryButton} onPress={() => openAdd("maintenance")}>
-                    <Text style={styles.primaryButtonText}>Add Maintenance Task</Text>
+                    <Text style={styles.primaryButtonText}>Add your first maintenance task</Text>
                   </Pressable>
                 </View>
               );
@@ -1163,21 +1251,36 @@ export default function PropertyDetailContent({
 
             return (
               <View>
-                <Text style={[styles.sectionHeader, { marginBottom: 8 }]}>Active</Text>
-                {activeTasks.length === 0 ? (
-                  <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
-                    No active tasks.
-                  </Text>
-                ) : (
-                  activeTasks.map(renderTask)
-                )}
-                <Text style={[styles.sectionHeader, { marginTop: 12, marginBottom: 8 }]}>Completed</Text>
-                {completedTasks.length === 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 12 }}>
+                  {(
+                    [
+                      ["upcoming", "Upcoming", upcomingTasks.length],
+                      ["overdue", "Overdue", overdueTasks.length],
+                      ["completed", "Completed", completedTasks.length],
+                      ["active", "All active", maint.filter((m) => m.status !== "Completed" && !m.archived).length],
+                    ] as const
+                  ).map(([id, label, count]) => (
+                    <Pressable
+                      key={id}
+                      onPress={() => setTaskFilter(id)}
+                      style={[styles.chip, taskFilter === id && styles.chipActive]}
+                    >
+                      <Text style={taskFilter === id ? styles.chipTextActive : styles.chipText}>
+                        {label} ({count})
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                {filteredTasks.length === 0 ? (
                   <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>
-                    No completed tasks yet.
+                    {taskFilter === "completed"
+                      ? "Completed tasks will appear here."
+                      : taskFilter === "overdue"
+                        ? "No overdue tasks."
+                        : "No upcoming tasks."}
                   </Text>
                 ) : (
-                  completedTasks.map(renderTask)
+                  filteredTasks.map(renderTask)
                 )}
               </View>
             );
@@ -1257,7 +1360,10 @@ export default function PropertyDetailContent({
           ))
         );
       case "documents":
-        return propDocs.length === 0 ? (
+        return (
+          <View>
+            <HelpHint text="Upload warranties, receipts, contracts, and inspections" />
+            {propDocs.length === 0 ? (
           <View style={{ alignItems: "center", paddingVertical: 16 }}>
             <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
               No documents yet.
@@ -1270,6 +1376,8 @@ export default function PropertyDetailContent({
           propDocs.map((d) => (
             <DocumentCard key={d.id} document={d} onPress={setViewDocument} />
           ))
+        )}
+          </View>
         );
       case "photos":
         return (
@@ -1451,18 +1559,21 @@ export default function PropertyDetailContent({
               ))}
             </ScrollView>
             <DatePickerField
-              label="Next Due Date"
-              value={mNextDue}
-              onChange={setMNextDue}
-              required
-              placeholder="Select date"
-            />
-            <DatePickerField
               label="Last Completed"
               value={mLastCompleted}
               onChange={setMLastCompleted}
               optional
               placeholder="Select date"
+            />
+            <RelativeDueDateField
+              label="Next due"
+              value={mNextDue}
+              required
+              helperText="Choose a date or set when it is due."
+              onChange={(iso, meta) => {
+                setMNextDue(iso);
+                if (meta?.intervalDays) setMIntervalDays(meta.intervalDays);
+              }}
             />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={mNotes} onChangeText={setMNotes} multiline />
@@ -1953,8 +2064,33 @@ export default function PropertyDetailContent({
         item={viewMaintenance}
         onClose={() => setViewMaintenance(null)}
         onEdit={openEditMaintenance}
-        onComplete={async (id) => completeMaintenanceItem(id)}
+        onRequestComplete={(item) => setCompleteTarget(item)}
         onDelete={deleteMaintenanceItem}
+      />
+
+      <TaskCompletionModal
+        visible={completeTarget !== null}
+        item={completeTarget}
+        onClose={() => setCompleteTarget(null)}
+        onSubmit={async (payload: TaskCompletionPayload) => {
+          if (!completeTarget) return;
+          await completeMaintenanceItem(completeTarget.id, {
+            completedAt: payload.completedAt,
+            completionNotes: payload.completionNotes,
+            photoUris: payload.photoUris,
+            outcome: payload.outcome,
+            nextDue: payload.nextDue,
+            intervalDays: payload.intervalDays,
+          });
+          notifyUser(
+            "Task marked complete",
+            payload.outcome === "reschedule" && payload.nextDue
+              ? `Next due ${payload.nextDue}`
+              : payload.outcome === "archive"
+                ? "Moved to archive"
+                : "Moved to Completed"
+          );
+        }}
       />
     </Screen>
   );

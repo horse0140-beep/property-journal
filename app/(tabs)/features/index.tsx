@@ -133,6 +133,14 @@ export default function PremiumFeaturesHub() {
           </Text>
         </View>
 
+        <Pressable
+          onPress={() => router.push("/settings/help")}
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 }}
+        >
+          <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>Help & How to Use</Text>
+        </Pressable>
+
         {FEATURES.map((f) => {
           const locked = isLocked(f);
           return (

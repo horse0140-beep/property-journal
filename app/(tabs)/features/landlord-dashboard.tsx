@@ -208,6 +208,9 @@ export default function LandlordDashboardScreen() {
             <Text style={{ color: "rgba(255,255,255,0.9)", marginTop: 8 }}>
               {user?.name ?? "Landlord"}
             </Text>
+            <Text style={{ color: "rgba(255,255,255,0.85)", marginTop: 10, fontSize: 13 }}>
+              Click any property to open its record
+            </Text>
           </View>
 
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>

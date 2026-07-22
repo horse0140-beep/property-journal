@@ -207,6 +207,12 @@ export default function PropertySharingScreen() {
           rightAction={{ label: "+ New", onPress: openCreate }}
         />
 
+        <View style={{ marginHorizontal: 16, marginBottom: 8 }}>
+          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
+            Anyone with an active link can view the read-only report.
+          </Text>
+        </View>
+
         {!shareConfigured ? (
           <View style={{ marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B" }}>
             <Text style={{ color: "#92400E", fontWeight: "700" }}>{SHARE_NOT_CONFIGURED_MESSAGE}</Text>
