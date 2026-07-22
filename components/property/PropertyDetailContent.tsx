@@ -47,6 +47,7 @@ import {
   type UploadProgress,
 } from "@/services/storageService";
 import { photoKindFromCategory } from "@/services/storageBuckets";
+import { displayFileNameFromUri, titleFromFileName, takePhoto, pickImageFromLibrary } from "@/lib/fileUtils";
 import {
   DOC_CATEGORIES,
   MAINTENANCE_CATEGORIES,
@@ -120,6 +121,7 @@ const EMPTY_DOC: Omit<Document, "id"> = {
   category: "other",
   fileType: "pdf",
   fileSize: "—",
+  fileName: "",
   uploadDate: todayIsoDate(),
   notes: "",
   tags: [],
@@ -232,6 +234,7 @@ export default function PropertyDetailContent({
   const [aCondition, setACondition] = useState<"Excellent" | "Good" | "Fair" | "Poor" | "Replace Soon">("Good");
   const [aNotes, setANotes] = useState("");
   const [aLife, setALife] = useState("12");
+  const [aPhotoUri, setAPhotoUri] = useState<string | null>(null);
 
   // Paint
   const [pRoom, setPRoom] = useState("");
@@ -331,6 +334,7 @@ export default function PropertyDetailContent({
     setACondition("Good");
     setANotes("");
     setALife("12");
+    setAPhotoUri(null);
     setPRoom("");
     setPBrand("");
     setPName("");
@@ -411,6 +415,7 @@ export default function PropertyDetailContent({
     setACondition(a.condition);
     setANotes(a.notes ?? "");
     setALife(String(a.expectedLifeYears ?? 12));
+    setAPhotoUri(a.photoUri?.trim() ? a.photoUri : null);
     setModal("appliance");
   }
 
@@ -428,19 +433,23 @@ export default function PropertyDetailContent({
   function openEditDocument(d: Document) {
     setViewDocument(null);
     setEditingId(d.id);
+    const resolvedName =
+      d.fileName?.trim() ||
+      displayFileNameFromUri(d.fileUri, d.title || "Attached file");
     setDocForm({
       propertyId: d.propertyId,
       title: d.title,
       category: d.category,
       fileType: d.fileType,
       fileSize: d.fileSize,
+      fileName: resolvedName,
       uploadDate: d.uploadDate,
       notes: d.notes ?? "",
       tags: d.tags ?? [],
       expiresDate: toIsoDateValue(d.expiresDate) ?? "",
       fileUri: d.fileUri,
     });
-    setPickedFileName(d.fileUri ? d.title : null);
+    setPickedFileName(d.fileUri ? resolvedName : null);
     setModal("document");
   }
 
@@ -572,9 +581,13 @@ export default function PropertyDetailContent({
           nextService: "TBD",
           condition: aCondition,
           notes: aNotes,
+          photoUri: aPhotoUri?.trim() || undefined,
         };
         if (editingId) {
-          await updateAppliance(editingId, payload);
+          await updateAppliance(editingId, {
+            ...payload,
+            photoUri: aPhotoUri?.trim() ? aPhotoUri.trim() : "",
+          });
           saved = { id: editingId, name: aName };
         } else {
           saved = await addAppliance(payload);
@@ -751,11 +764,30 @@ export default function PropertyDetailContent({
           fileUri: result.localUri,
           fileSize: result.formattedSize,
           fileType: result.fileType,
-          title: f.title.trim() ? f.title : result.name.replace(/\.[^/.]+$/, ""),
+          fileName: result.name,
+          // Prefill title only when empty — never overwrite a user-entered title.
+          title: f.title.trim() ? f.title : titleFromFileName(result.name),
         }));
       }
     } catch (e) {
       showRealSaveError("property", "pick document", e);
+    } finally {
+      setPicking(false);
+    }
+  }
+
+  async function attachAppliancePhoto(fromCamera: boolean) {
+    setPicking(true);
+    try {
+      if (fromCamera) {
+        const shot = await takePhoto({ allowsEditing: false, quality: 0.85 });
+        if (shot?.uri) setAPhotoUri(shot.uri);
+        return;
+      }
+      const results = await pickImageFromLibrary({ allowsMultiple: false, allowsEditing: false, quality: 0.85 });
+      if (results?.[0]?.uri) setAPhotoUri(results[0].uri);
+    } catch (e) {
+      showRealSaveError("appliance", "pick photo", e);
     } finally {
       setPicking(false);
     }
@@ -915,9 +947,18 @@ export default function PropertyDetailContent({
             propAppliances.map((a) => (
               <Card key={a.id} style={{ marginBottom: 10 }}>
                 <View style={styles.rowBetween}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{a.name}</Text>
-                    <Text style={styles.muted}>{[a.brand, a.model].filter(Boolean).join(" · ")}</Text>
+                  <View style={{ flexDirection: "row", flex: 1, gap: 10, alignItems: "center" }}>
+                    {a.photoUri ? (
+                      <Image
+                        source={{ uri: a.photoUri }}
+                        style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: colors.bgSection }}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>{a.name}</Text>
+                      <Text style={styles.muted}>{[a.brand, a.model].filter(Boolean).join(" · ")}</Text>
+                    </View>
                   </View>
                   <Text style={{ color: conditionColor(a.condition), fontWeight: "700" }}>{a.condition}</Text>
                 </View>
@@ -1372,6 +1413,53 @@ export default function PropertyDetailContent({
                 </Pressable>
               ))}
             </View>
+            <Text style={styles.label}>Appliance Photo (optional)</Text>
+            {aPhotoUri ? (
+              <>
+                <Image
+                  source={{ uri: aPhotoUri }}
+                  style={{ width: "100%", height: 160, borderRadius: 12, marginBottom: 10, backgroundColor: colors.bgSection }}
+                  resizeMode="cover"
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => attachAppliancePhoto(false)}
+                    disabled={picking}
+                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Replace</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setAPhotoUri(null)}
+                    disabled={picking || isSaving}
+                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, borderColor: colors.danger }]}
+                  >
+                    <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Remove</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {Platform.OS !== "web" ? (
+                  <Pressable
+                    onPress={() => attachAppliancePhoto(true)}
+                    disabled={picking}
+                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                  >
+                    <Text style={styles.secondaryButtonText}>Camera</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={() => attachAppliancePhoto(false)}
+                  disabled={picking}
+                  style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {Platform.OS === "web" ? "Choose Photo" : "Library"}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
           </>
         )}
 
@@ -1425,11 +1513,27 @@ export default function PropertyDetailContent({
             <Text style={styles.label}>Document Title *</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. HVAC Warranty"
+              placeholder="e.g. Roof Warranty"
               placeholderTextColor={colors.textMuted}
               value={docForm.title}
               onChangeText={(v) => setDocForm((f) => ({ ...f, title: v }))}
+              editable={!isSaving}
             />
+            <Text style={styles.label}>File name</Text>
+            <View
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.bgSection,
+                  justifyContent: "center",
+                  minHeight: 44,
+                },
+              ]}
+            >
+              <Text style={{ color: pickedFileName || docForm.fileName ? colors.textPrimary : colors.textMuted, fontSize: 14 }}>
+                {pickedFileName || docForm.fileName || "No file selected"}
+              </Text>
+            </View>
             <Text style={styles.label}>Category</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {DOC_CATEGORIES.map((c) => (
@@ -1481,11 +1585,9 @@ export default function PropertyDetailContent({
                 <Text style={styles.secondaryButtonText}>Photo</Text>
               </Pressable>
             </View>
-            {pickedFileName ? (
-              <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>{pickedFileName}</Text>
-            ) : (
+            {!pickedFileName ? (
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>Please choose a file first</Text>
-            )}
+            ) : null}
               </>
             )}
           </>

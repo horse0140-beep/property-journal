@@ -412,13 +412,19 @@ export async function verifyStorageBucketExists(
   return { ok: true };
 }
 
+/**
+ * Upload a local/blob file.
+ * Optional `folderSegments` scopes the path under userId, e.g.
+ * `propertyId/applianceId` → `{userId}/{propertyId}/{applianceId}/{safeName}`.
+ */
 export async function uploadLocalFile(
   userId: string,
   bucket: StorageBucket,
   localUri: string,
   fileName?: string,
   onProgress?: UploadProgressCallback,
-  mimeType?: string
+  mimeType?: string,
+  folderSegments?: string[]
 ): Promise<UploadedFile> {
   if (!userId) throw new Error("You must be signed in to upload files.");
   if (!localUri) throw new Error("No file selected.");
@@ -435,7 +441,15 @@ export async function uploadLocalFile(
   reportProgress(onProgress, "uploading", 45);
 
   const safeName = buildStorageObjectName(localUri, fileName, mimeType);
-  const path = `${userId}/${safeName}`;
+  const safeFolders = (folderSegments ?? [])
+    .map((s) =>
+      String(s ?? "")
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    )
+    .filter(Boolean);
+  const path = [userId, ...safeFolders, safeName].join("/");
   const contentType = guessContentType(localUri, mimeType);
 
   const allowedMime =

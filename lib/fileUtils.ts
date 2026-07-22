@@ -263,3 +263,20 @@ export function isImageUri(uri: string): boolean {
 export function isPdfUri(uri: string): boolean {
   return /\.pdf$/i.test(uri);
 }
+
+/** Best-effort original/display file name from a local or remote URI. */
+export function displayFileNameFromUri(uri?: string | null, fallback = "Attached file"): string {
+  if (!uri?.trim()) return fallback;
+  try {
+    const clean = decodeURIComponent(uri.trim().split("?")[0]);
+    const base = clean.split(/[/\\]/).pop()?.trim();
+    return base || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Strip extension for a friendly document-title prefill. */
+export function titleFromFileName(fileName: string): string {
+  return fileName.replace(/\.[^/.]+$/, "").trim() || fileName.trim();
+}

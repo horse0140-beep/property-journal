@@ -72,6 +72,8 @@ export type Document = {
   title: string;
   category: "warranty" | "insurance" | "inspection" | "permit" | "receipt" | "contract" | "manual" | "other";
   fileUri?: string;
+  /** Original upload file name (UI / storage naming). Not a separate DB column. */
+  fileName?: string;
   fileType: "pdf" | "image" | "other";
   fileSize: string;
   uploadDate: string;

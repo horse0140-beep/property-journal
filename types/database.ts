@@ -349,11 +349,17 @@ export function applianceToRow(userId: string, a: Appliance): Record<string, unk
   setTextField(row, "notes", a.notes);
 
   const photo = parsePhotoUri(a.photoUri);
-  if (photo) row.photo_url = photo;
+  if (a.photoUri !== undefined) {
+    row.photo_url = photo || null;
+  }
   const manual = parsePhotoUri(a.manualUri);
-  if (manual) row.manual_url = manual;
+  if (a.manualUri !== undefined) {
+    row.manual_url = manual || null;
+  }
   const receipt = parsePhotoUri(a.receiptUri);
-  if (receipt) row.receipt_url = receipt;
+  if (a.receiptUri !== undefined) {
+    row.receipt_url = receipt || null;
+  }
 
   return row;
 }
@@ -432,12 +438,23 @@ export function paintToRow(userId: string, p: PaintColor): Record<string, unknow
 
 export function rowToDocument(row: Record<string, unknown>, categoryOverride?: Document["category"]): Document {
   const fileUrl = toDisplayString(row.file_url);
+  let fileName: string | undefined;
+  if (fileUrl) {
+    try {
+      const clean = decodeURIComponent(fileUrl.split("?")[0]);
+      const base = clean.split("/").pop()?.trim();
+      if (base) fileName = base;
+    } catch {
+      // ignore
+    }
+  }
   return {
     id: row.id as string,
     propertyId: toDisplayString(row.property_id ?? row.propertyId),
     title: toDisplayString(row.title),
     category: normalizeDocumentCategory(row.category, categoryOverride),
     fileUri: fileUrl || undefined,
+    fileName,
     fileType: (row.file_type as Document["fileType"]) ?? "pdf",
     fileSize: (row.file_size as string) ?? "",
     uploadDate: (row.upload_date as string) ?? "",

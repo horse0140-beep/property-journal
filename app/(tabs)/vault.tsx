@@ -27,7 +27,7 @@ import { useTabScrollContentStyle } from "@/constants/layout";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import { useUpgrade } from "@/context/UpgradeContext";
 import type { Document } from "@/context/HomeWiseContext";
-import { fileExists } from "@/lib/fileUtils";
+import { fileExists, titleFromFileName } from "@/lib/fileUtils";
 import { logDocumentCardTap, resolveDocumentUrl } from "@/lib/documentUtils";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { showRealSaveError, logSaveSuccessEvent } from "@/lib/realSaveError";
@@ -86,6 +86,7 @@ const EMPTY_FORM: Omit<Document, "id"> = {
   category: "other",
   fileType: "pdf",
   fileSize: "—",
+  fileName: "",
   uploadDate: todayIsoDate(),
   notes: "",
   tags: [],
@@ -143,12 +144,14 @@ export default function VaultScreen() {
       const result = await picker();
       if (result) {
         setPickedFileName(result.name);
-        setF("fileUri", result.localUri);
-        setF("fileSize", result.formattedSize);
-        setF("fileType", result.fileType);
-        if (!form.title.trim()) {
-          setF("title", result.name.replace(/\.[^/.]+$/, ""));
-        }
+        setForm((f) => ({
+          ...f,
+          fileUri: result.localUri,
+          fileSize: result.formattedSize,
+          fileType: result.fileType,
+          fileName: result.name,
+          title: f.title.trim() ? f.title : titleFromFileName(result.name),
+        }));
       }
     } catch (e) {
       console.warn("FILE_PICK_ERROR", e);
@@ -561,11 +564,28 @@ export default function VaultScreen() {
             <Text style={styles.label}>Document Title *</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. HVAC Warranty"
+              placeholder="e.g. Roof Warranty"
               placeholderTextColor={colors.textMuted}
               value={form.title}
               onChangeText={(v) => setF("title", v)}
+              editable={!busy}
             />
+
+            <Text style={styles.label}>File name</Text>
+            <View
+              style={[
+                styles.input,
+                {
+                  backgroundColor: colors.bgSection,
+                  justifyContent: "center",
+                  minHeight: 44,
+                },
+              ]}
+            >
+              <Text style={{ color: pickedFileName || form.fileName ? colors.textPrimary : colors.textMuted, fontSize: 14 }}>
+                {pickedFileName || form.fileName || "No file selected"}
+              </Text>
+            </View>
 
             <Text style={styles.label}>Category</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -716,9 +736,11 @@ export default function VaultScreen() {
                   ) : (
                     <Ionicons name="checkmark-circle" size={28} color={colors.success} />
                   )}
-                  <Text style={{ color: colors.success, fontWeight: "700", fontSize: 13 }}>{pickedFileName}</Text>
+                  <Text style={{ color: colors.success, fontWeight: "700", fontSize: 13 }}>
+                    File ready · {form.fileSize}
+                  </Text>
                   <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                    {form.fileSize} · Tap buttons above to change file
+                    Tap buttons above to change file
                   </Text>
                 </>
               ) : (

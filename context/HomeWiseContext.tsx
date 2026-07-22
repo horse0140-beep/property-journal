@@ -737,9 +737,45 @@ export function HomeWiseProvider({
         setState((s) => ({ ...s, appliances: [newItem, ...s.appliances] }));
         bumpScore(a.propertyId);
         if (!isSignedIn) return newItem;
+        await assertOnlineForWrite();
+
+        let uploadedBucket: ReturnType<typeof getPhotoBucket> | null = null;
+        let uploadedPath: string | null = null;
+
         try {
           const userId = await requireAuthUserId();
-          const created = await applianceService.createAppliance(userId, newItem);
+          let item = newItem;
+
+          if (a.photoUri?.trim() && !isRemoteUri(a.photoUri)) {
+            const bucket = getPhotoBucket("property");
+            const uploaded = await uploadLocalFile(
+              userId,
+              bucket,
+              a.photoUri,
+              `appliance_${newItem.id}.jpg`,
+              undefined,
+              "image/jpeg",
+              [a.propertyId, newItem.id]
+            );
+            uploadedBucket = uploaded.bucket;
+            uploadedPath = uploaded.path;
+            if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
+              await deleteStorageObject(uploaded.bucket, uploaded.path);
+              throw new Error("Appliance photo upload did not return a usable URL.");
+            }
+            item = { ...item, photoUri: uploaded.url };
+          }
+
+          let created: Appliance;
+          try {
+            created = await applianceService.createAppliance(userId, item);
+          } catch (insertError) {
+            if (uploadedBucket && uploadedPath) {
+              await deleteStorageObject(uploadedBucket, uploadedPath);
+            }
+            throw insertError;
+          }
+
           setState((s) => ({
             ...s,
             appliances: s.appliances.map((ap) => (ap.id === newItem.id ? created : ap)),
@@ -762,10 +798,70 @@ export function HomeWiseProvider({
         }));
         const pid = previous?.propertyId;
         if (pid) bumpScore(pid);
-        if (!isSignedIn) return;
+        if (!isSignedIn || !previous) return;
+        await assertOnlineForWrite();
+
+        let uploadedBucket: ReturnType<typeof getPhotoBucket> | null = null;
+        let uploadedPath: string | null = null;
+        let uploadedUrl: string | null = null;
+
         try {
           const userId = await requireAuthUserId();
-          await applianceService.updateAppliance(userId, id, a);
+          const updates: Partial<Appliance> = { ...a };
+          const propertyId = previous.propertyId;
+
+          if (a.photoUri !== undefined) {
+            const next = (a.photoUri ?? "").trim();
+            if (!next) {
+              updates.photoUri = "";
+            } else if (!isRemoteUri(next)) {
+              const bucket = getPhotoBucket("property");
+              const uploaded = await uploadLocalFile(
+                userId,
+                bucket,
+                next,
+                `appliance_${id}.jpg`,
+                undefined,
+                "image/jpeg",
+                [propertyId, id]
+              );
+              uploadedBucket = uploaded.bucket;
+              uploadedPath = uploaded.path;
+              uploadedUrl = uploaded.url;
+              if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
+                await deleteStorageObject(uploaded.bucket, uploaded.path);
+                throw new Error("Appliance photo upload did not return a usable URL.");
+              }
+              updates.photoUri = uploaded.url;
+            }
+          }
+
+          try {
+            await applianceService.updateAppliance(userId, id, updates);
+          } catch (updateError) {
+            if (uploadedBucket && uploadedPath) {
+              await deleteStorageObject(uploadedBucket, uploadedPath);
+            }
+            throw updateError;
+          }
+
+          // Cleanup previous storage object after successful replace/remove.
+          if (a.photoUri !== undefined) {
+            const prevUrl = previous.photoUri?.trim();
+            const nextUrl = (updates.photoUri ?? "").trim();
+            if (prevUrl && isRemoteUri(prevUrl) && prevUrl !== nextUrl) {
+              await deleteFromStorage(getPhotoBucket("property"), prevUrl).catch(() => undefined);
+            }
+          }
+
+          if (uploadedUrl) {
+            setState((s) => ({
+              ...s,
+              appliances: s.appliances.map((ap) =>
+                ap.id === id ? { ...ap, ...updates, photoUri: uploadedUrl! } : ap
+              ),
+            }));
+          }
         } catch (e) {
           if (previous) {
             setState((s) => ({
@@ -778,12 +874,18 @@ export function HomeWiseProvider({
       },
 
       deleteAppliance: (id) => {
-        const pid = state.appliances.find((a) => a.id === id)?.propertyId;
+        const appliance = state.appliances.find((a) => a.id === id);
+        const pid = appliance?.propertyId;
         setState((s) => ({ ...s, appliances: s.appliances.filter((a) => a.id !== id) }));
         if (pid) bumpScore(pid);
-        if (isSignedIn) {
+        if (isSignedIn && appliance) {
           void requireAuthUserId()
-            .then((userId) => applianceService.deleteAppliance(userId, id))
+            .then(async (userId) => {
+              await applianceService.deleteAppliance(userId, id);
+              if (appliance.photoUri && isRemoteUri(appliance.photoUri)) {
+                await deleteFromStorage(getPhotoBucket("property"), appliance.photoUri);
+              }
+            })
             .catch((e) => syncError("Delete appliance", e));
         }
       },
@@ -841,7 +943,7 @@ export function HomeWiseProvider({
               userId,
               bucket,
               d.fileUri,
-              title || undefined,
+              d.fileName?.trim() || title || undefined,
               undefined,
               mimeHint
             );

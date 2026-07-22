@@ -1,10 +1,27 @@
-import { Alert, Platform, Share } from "react-native";
+import { Alert, Linking, Platform, Share } from "react-native";
 import { buildShareMessage, buildShareUrl, SHARE_NOT_CONFIGURED_MESSAGE } from "@/lib/shareUrl";
+
+export type ShareLinkResult =
+  | { ok: true; url: string; method: "webshare" | "clipboard" }
+  | { ok: false; url: string | null; error: string };
+
+/** Visible feedback that works on web (RN Alert.alert is a no-op on react-native-web). */
+export function notifyUser(title: string, message?: string): void {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+    return;
+  }
+  Alert.alert(title, message);
+}
 
 async function copyTextWeb(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return true;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn("[share] clipboard.writeText failed", e);
+    }
   }
 
   // Fallback for older browsers / insecure contexts
@@ -16,60 +33,107 @@ async function copyTextWeb(text: string): Promise<boolean> {
   ta.style.left = "-9999px";
   document.body.appendChild(ta);
   ta.select();
-  const ok = document.execCommand("copy");
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
   document.body.removeChild(ta);
   return ok;
 }
 
 /**
  * Share a property link.
- * Web: clipboard (+ optional Web Share API). Native: system share sheet.
+ * Web: Web Share API → clipboard → textarea fallback. Always returns a result.
+ * Native: system share sheet.
  */
 export async function sharePropertyLink(opts: {
   token: string;
   label: string;
   propertyLabel: string;
-}): Promise<void> {
+}): Promise<ShareLinkResult> {
   const url = buildShareUrl(opts.token);
   if (!url) {
-    Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
-    return;
+    const error = SHARE_NOT_CONFIGURED_MESSAGE;
+    notifyUser("Sharing unavailable", error);
+    return { ok: false, url: null, error };
+  }
+
+  if (__DEV__) {
+    console.info("[share] final URL:", url);
   }
 
   const intro = `View my Property Journal property history for ${opts.propertyLabel}.`;
 
   if (Platform.OS === "web") {
     try {
-      const copied = await copyTextWeb(url);
-      if (copied) {
-        Alert.alert("Share link copied", url);
-        return;
-      }
-
-      // Optional Web Share API when clipboard is unavailable.
       const nav = typeof navigator !== "undefined" ? navigator : null;
       if (nav && typeof nav.share === "function") {
         try {
           await nav.share({ title: opts.label, text: intro, url });
-          return;
+          // Also copy so the required confirmation is accurate.
+          await copyTextWeb(url).catch(() => false);
+          notifyUser("Share link copied", url);
+          return { ok: true, url, method: "webshare" };
         } catch (err) {
-          if (err instanceof Error && err.name === "AbortError") return;
-          console.warn("[share] Web Share API failed", err);
+          // AbortError = user dismissed sheet — fall through to clipboard.
+          if (!(err instanceof Error && err.name === "AbortError")) {
+            console.warn("[share] Web Share API failed", err);
+          }
         }
       }
 
-      Alert.alert("Copy failed", `Copy this link manually:\n\n${url}`);
+      const copied = await copyTextWeb(url);
+      if (copied) {
+        notifyUser("Share link copied", url);
+        return { ok: true, url, method: "clipboard" };
+      }
+
+      const error = `Copy this link manually:\n\n${url}`;
+      notifyUser("Copy failed", error);
+      return { ok: false, url, error };
     } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
       console.warn("[share] web share failed", e);
-      Alert.alert("Share failed", e instanceof Error ? e.message : String(e));
+      notifyUser("Share failed", error);
+      return { ok: false, url, error };
     }
-    return;
   }
 
   const message = buildShareMessage(opts.token, intro);
   if (!message) {
-    Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
-    return;
+    const error = SHARE_NOT_CONFIGURED_MESSAGE;
+    notifyUser("Sharing unavailable", error);
+    return { ok: false, url: null, error };
   }
   await Share.share({ message, title: opts.label });
+  return { ok: true, url, method: "clipboard" };
+}
+
+/** Open the public HTTPS share URL in a new tab (web) or system browser (native). */
+export async function openShareLink(token: string): Promise<ShareLinkResult> {
+  const url = buildShareUrl(token);
+  if (!url) {
+    const error = SHARE_NOT_CONFIGURED_MESSAGE;
+    notifyUser("Sharing unavailable", error);
+    return { ok: false, url: null, error };
+  }
+
+  if (__DEV__) {
+    console.info("[share] open URL:", url);
+  }
+
+  try {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return { ok: true, url, method: "clipboard" };
+    }
+    await Linking.openURL(url);
+    return { ok: true, url, method: "clipboard" };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    notifyUser("Open failed", error);
+    return { ok: false, url, error };
+  }
 }

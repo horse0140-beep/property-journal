@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ScrollView, Text, View, Pressable, Alert, ActivityIndicator,
-  RefreshControl,
+  RefreshControl, Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -23,8 +23,8 @@ import {
   SHARE_NOT_CONFIGURED_MESSAGE,
   updatePropertyShare,
 } from "@/services/sharingService";
-import { logShareUrlConfig } from "@/lib/shareUrl";
-import { sharePropertyLink } from "@/lib/webShare";
+import { buildShareUrl, logShareUrlConfig } from "@/lib/shareUrl";
+import { notifyUser, openShareLink, sharePropertyLink } from "@/lib/webShare";
 import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
 
@@ -40,6 +40,8 @@ export default function PropertySharingScreen() {
   const [includePersonal, setIncludePersonal] = useState(false);
   const [expiresDays, setExpiresDays] = useState("30");
   const [saving, setSaving] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [sharingToken, setSharingToken] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -47,7 +49,7 @@ export default function PropertySharingScreen() {
       setShares(await fetchPropertyShares(user.id));
     } catch (e: unknown) {
       logTechnicalError("loadPropertyShares", e);
-      Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing"));
+      notifyUser("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,7 +66,7 @@ export default function PropertySharingScreen() {
 
   function openCreate() {
     if (!selectedProperty) {
-      Alert.alert("No Property", "Select a property first.");
+      notifyUser("No Property", "Select a property first.");
       return;
     }
     setEditing(null);
@@ -121,34 +123,71 @@ export default function PropertySharingScreen() {
       await load();
     } catch (e: unknown) {
       logTechnicalError("savePropertyShare", e);
-      Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_create"));
+      notifyUser("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_create"));
     } finally {
       setSaving(false);
     }
   }
 
   async function shareLink(share: PropertyShare) {
-    await sharePropertyLink({
-      token: share.share_token,
-      label: share.label,
-      propertyLabel: share.property_label,
-    });
+    setSharingToken(share.share_token);
+    setShareFeedback(null);
+    try {
+      const result = await sharePropertyLink({
+        token: share.share_token,
+        label: share.label,
+        propertyLabel: share.property_label,
+      });
+      if (result.ok) {
+        setShareFeedback(`Share link copied\n${result.url}`);
+      } else {
+        setShareFeedback(result.error);
+      }
+    } finally {
+      setSharingToken(null);
+    }
+  }
+
+  async function openLink(share: PropertyShare) {
+    setSharingToken(share.share_token);
+    setShareFeedback(null);
+    try {
+      const result = await openShareLink(share.share_token);
+      if (result.ok) {
+        setShareFeedback(`Opened\n${result.url}`);
+      } else {
+        setShareFeedback(result.error);
+      }
+    } finally {
+      setSharingToken(null);
+    }
   }
 
   function confirmDelete(share: PropertyShare) {
+    const runRevoke = async () => {
+      try {
+        await revokePropertyShare(share.id);
+        await load();
+      } catch (e: unknown) {
+        logTechnicalError("revokePropertyShare", e);
+        notifyUser("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_revoke"));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm(`Remove "${share.label}"?`)) {
+        void runRevoke();
+      }
+      return;
+    }
+
     Alert.alert("Revoke Share", `Remove "${share.label}"?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Revoke",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await revokePropertyShare(share.id);
-            await load();
-          } catch (e: unknown) {
-            logTechnicalError("revokePropertyShare", e);
-            Alert.alert("Error", e instanceof UserFacingError ? e.userMessage : friendlyMessage("sharing_revoke"));
-          }
+        onPress: () => {
+          void runRevoke();
         },
       },
     ]);
@@ -177,6 +216,25 @@ export default function PropertySharingScreen() {
           </View>
         ) : null}
 
+        {shareFeedback ? (
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginBottom: 8,
+              padding: 12,
+              borderRadius: 10,
+              backgroundColor: colors.successBg ?? "#ECFDF5",
+              borderWidth: 1,
+              borderColor: colors.success,
+            }}
+          >
+            <Text style={{ color: colors.success, fontWeight: "700" }}>{shareFeedback}</Text>
+            <Pressable onPress={() => setShareFeedback(null)} style={{ marginTop: 8 }}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Dismiss</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {loading ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -198,36 +256,67 @@ export default function PropertySharingScreen() {
                 </Pressable>
               </View>
             ) : (
-              shares.map((share) => (
-                <Card key={share.id}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.cardTitle}>{share.label}</Text>
-                    <AdminBadge label={share.is_active ? "Active" : "Inactive"} variant={share.is_active ? "success" : "muted"} />
-                  </View>
-                  <Text style={styles.muted}>{share.property_label}</Text>
-                  <Text style={{ color: colors.primary, fontWeight: "800", marginTop: 8, letterSpacing: 1 }}>
-                    {share.share_token}
-                  </Text>
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                    <AdminBadge label={`${share.views_count} views`} variant="muted" />
-                    {share.expires_at && (
-                      <AdminBadge label={`Expires ${new Date(share.expires_at).toLocaleDateString()}`} variant="info" />
+              shares.map((share) => {
+                const publicUrl = buildShareUrl(share.share_token);
+                const busy = sharingToken === share.share_token;
+                return (
+                  <Card key={share.id}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.cardTitle}>{share.label}</Text>
+                      <AdminBadge label={share.is_active ? "Active" : "Inactive"} variant={share.is_active ? "success" : "muted"} />
+                    </View>
+                    <Text style={styles.muted}>{share.property_label}</Text>
+                    {publicUrl ? (
+                      <Text
+                        style={{ color: colors.primary, fontWeight: "600", marginTop: 8, fontSize: 12 }}
+                        numberOfLines={2}
+                        selectable
+                      >
+                        {publicUrl}
+                      </Text>
+                    ) : (
+                      <Text style={{ color: colors.primary, fontWeight: "800", marginTop: 8, letterSpacing: 1 }}>
+                        {share.share_token}
+                      </Text>
                     )}
-                  </View>
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
-                    <Pressable onPress={() => shareLink(share)} style={[styles.primaryButton, { flex: 1, marginTop: 0, paddingVertical: 12 }]}>
-                      <Ionicons name="share-outline" size={16} color="#fff" />
-                      <Text style={styles.primaryButtonText}>Share</Text>
-                    </Pressable>
-                    <Pressable onPress={() => openEdit(share)} style={[styles.secondaryButton, { flex: 1, marginTop: 0 }]}>
-                      <Text style={styles.secondaryButtonText}>Edit</Text>
-                    </Pressable>
-                    <Pressable onPress={() => confirmDelete(share)} style={[styles.secondaryButton, { marginTop: 0, borderColor: colors.danger }]}>
-                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                    </Pressable>
-                  </View>
-                </Card>
-              ))
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                      <AdminBadge label={`${share.views_count} views`} variant="muted" />
+                      {share.expires_at && (
+                        <AdminBadge label={`Expires ${new Date(share.expires_at).toLocaleDateString()}`} variant="info" />
+                      )}
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                      <Pressable
+                        onPress={() => shareLink(share)}
+                        disabled={busy || !shareConfigured}
+                        style={[styles.primaryButton, { flex: 1, minWidth: 100, marginTop: 0, paddingVertical: 12, opacity: busy || !shareConfigured ? 0.6 : 1 }]}
+                      >
+                        {busy ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons name="share-outline" size={16} color="#fff" />
+                            <Text style={styles.primaryButtonText}>Share</Text>
+                          </>
+                        )}
+                      </Pressable>
+                      <Pressable
+                        onPress={() => openLink(share)}
+                        disabled={busy || !shareConfigured}
+                        style={[styles.secondaryButton, { flex: 1, minWidth: 100, marginTop: 0, opacity: busy || !shareConfigured ? 0.6 : 1 }]}
+                      >
+                        <Text style={styles.secondaryButtonText}>Open Link</Text>
+                      </Pressable>
+                      <Pressable onPress={() => openEdit(share)} style={[styles.secondaryButton, { flex: 1, minWidth: 80, marginTop: 0 }]}>
+                        <Text style={styles.secondaryButtonText}>Edit</Text>
+                      </Pressable>
+                      <Pressable onPress={() => confirmDelete(share)} style={[styles.secondaryButton, { marginTop: 0, borderColor: colors.danger }]}>
+                        <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                  </Card>
+                );
+              })
             )}
           </ScrollView>
         )}

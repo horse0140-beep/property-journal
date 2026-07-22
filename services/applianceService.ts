@@ -49,9 +49,15 @@ function buildApplianceUpdateRow(updates: Partial<Appliance>): Record<string, un
   if (updates.nextService !== undefined) setTextField(row, "next_service", updates.nextService);
   if (updates.condition !== undefined) setTextField(row, "condition", updates.condition);
   if (updates.notes !== undefined) setTextField(row, "notes", updates.notes);
-  if (updates.photoUri !== undefined && updates.photoUri) row.photo_url = updates.photoUri;
-  if (updates.manualUri !== undefined && updates.manualUri) row.manual_url = updates.manualUri;
-  if (updates.receiptUri !== undefined && updates.receiptUri) row.receipt_url = updates.receiptUri;
+  if (updates.photoUri !== undefined) {
+    row.photo_url = updates.photoUri?.trim() ? updates.photoUri.trim() : null;
+  }
+  if (updates.manualUri !== undefined) {
+    row.manual_url = updates.manualUri?.trim() ? updates.manualUri.trim() : null;
+  }
+  if (updates.receiptUri !== undefined) {
+    row.receipt_url = updates.receiptUri?.trim() ? updates.receiptUri.trim() : null;
+  }
 
   return row;
 }
