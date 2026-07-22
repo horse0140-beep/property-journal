@@ -1,11 +1,12 @@
 import { useEffect } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardModal } from "@/components/KeyboardModal";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 import { formatPickerDateDisplay, toIsoDateValue } from "@/components/DatePickerField";
 import { colors, styles } from "@/constants/theme";
 import type { Repair } from "@/data/demoData";
+import { confirmDestructive } from "@/lib/userFeedback";
 
 type RepairDetailModalProps = {
   visible: boolean;
@@ -45,18 +46,11 @@ export function RepairDetailModal({
 
   if (!repair) return null;
 
-  function handleDelete() {
-    Alert.alert("Delete Repair", `Remove "${repair!.title}"?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          onDelete(repair!.id);
-          onClose();
-        },
-      },
-    ]);
+  async function handleDelete() {
+    const ok = await confirmDestructive("Delete Repair", `Remove "${repair!.title}"?`);
+    if (!ok) return;
+    onDelete(repair!.id);
+    onClose();
   }
 
   const photos = repair.photoUris ?? [];
@@ -123,7 +117,7 @@ export function RepairDetailModal({
         <Text style={styles.secondaryButtonText}>Close</Text>
       </Pressable>
 
-      <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={handleDelete}>
+      <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={() => { void handleDelete(); }}>
         <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete</Text>
       </Pressable>
     </KeyboardModal>

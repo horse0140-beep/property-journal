@@ -22,6 +22,7 @@ import type { StorageBucket } from "@/services/storageBuckets";
 import {
   deleteStorageObject,
   isRemoteUri,
+  storagePathFromUrl,
   uploadLocalFile,
   verifyImageUrlHttp200,
   verifyStorageBucketExists,
@@ -542,8 +543,49 @@ export async function updatePhoto(
   });
 }
 
-export async function deletePhoto(id: string): Promise<void> {
+export async function deletePhoto(id: string): Promise<{ storageWarning?: string }> {
   const authUserId = await resolveAuthUserId();
+  const { data: row, error: fetchError } = await supabase
+    .from("photos")
+    .select("id, uri, photo_url, file_url, storage_path, storage_bucket, category")
+    .eq("id", id)
+    .eq("user_id", authUserId)
+    .maybeSingle();
+  if (fetchError) throw new Error(fetchError.message);
+
   const { error } = await supabase.from("photos").delete().eq("id", id).eq("user_id", authUserId);
+  if (error) throw new Error(error.message);
+
+  if (!row) return {};
+
+  const category = String(row.category ?? "property");
+  const bucket = (String(row.storage_bucket ?? "").trim() || getPhotoBucket(category)) as StorageBucket;
+  const url =
+    String(row.file_url ?? "").trim() ||
+    String(row.photo_url ?? "").trim() ||
+    String(row.uri ?? "").trim();
+  const path =
+    String(row.storage_path ?? "").trim() ||
+    (url ? storagePathFromUrl(bucket, url) : null);
+
+  if (!path && !url) return {};
+
+  try {
+    if (path) {
+      const { error: remErr } = await supabase.storage.from(bucket).remove([path]);
+      if (remErr) return { storageWarning: remErr.message };
+    } else if (url) {
+      await deleteFromStorageReporting(bucket, url);
+    }
+  } catch (e) {
+    return { storageWarning: e instanceof Error ? e.message : String(e) };
+  }
+  return {};
+}
+
+async function deleteFromStorageReporting(bucket: StorageBucket, fileUrl: string) {
+  const path = storagePathFromUrl(bucket, fileUrl);
+  if (!path) throw new Error("Could not resolve storage path for cleanup.");
+  const { error } = await supabase.storage.from(bucket).remove([path]);
   if (error) throw new Error(error.message);
 }

@@ -13,10 +13,25 @@ function normalizeRouteParam(value: string | string[] | undefined): string | und
 }
 
 export default function PropertyViewScreen() {
-  const params = useLocalSearchParams<{ id: string | string[]; section?: string | string[]; tab?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    id: string | string[];
+    section?: string | string[];
+    tab?: string | string[];
+    taskId?: string | string[];
+    itemId?: string | string[];
+    repairId?: string | string[];
+    docId?: string | string[];
+    photoId?: string | string[];
+    applianceId?: string | string[];
+  }>();
   const id = normalizeRouteParam(params.id);
   const section = normalizeRouteParam(params.section);
   const tab = normalizeRouteParam(params.tab);
+  const taskId = normalizeRouteParam(params.taskId) ?? normalizeRouteParam(params.itemId);
+  const repairId = normalizeRouteParam(params.repairId);
+  const docId = normalizeRouteParam(params.docId);
+  const photoId = normalizeRouteParam(params.photoId);
+  const applianceId = normalizeRouteParam(params.applianceId);
   const { selectProperty } = useHomeWise();
   const selectPropertyRef = useRef(selectProperty);
   selectPropertyRef.current = selectProperty;
@@ -38,6 +53,11 @@ export default function PropertyViewScreen() {
       propertyId={id}
       initialSection={initialSection}
       initialMaintenanceView={initialMaintenanceView}
+      openTaskId={taskId}
+      openRepairId={repairId}
+      openDocId={docId}
+      openPhotoId={photoId}
+      openApplianceId={applianceId}
     />
   );
 }

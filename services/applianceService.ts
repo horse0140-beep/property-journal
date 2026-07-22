@@ -49,8 +49,14 @@ function buildApplianceUpdateRow(updates: Partial<Appliance>): Record<string, un
   if (updates.nextService !== undefined) setTextField(row, "next_service", updates.nextService);
   if (updates.condition !== undefined) setTextField(row, "condition", updates.condition);
   if (updates.notes !== undefined) setTextField(row, "notes", updates.notes);
-  if (updates.photoUri !== undefined) {
-    row.photo_url = updates.photoUri?.trim() ? updates.photoUri.trim() : null;
+  if (updates.photoUris !== undefined) {
+    const urls = updates.photoUris.map((u) => String(u ?? "").trim()).filter(Boolean);
+    row.photo_urls = urls;
+    row.photo_url = urls[0] ?? null;
+  } else if (updates.photoUri !== undefined) {
+    const next = updates.photoUri?.trim() ? updates.photoUri.trim() : null;
+    row.photo_url = next;
+    row.photo_urls = next ? [next] : [];
   }
   if (updates.manualUri !== undefined) {
     row.manual_url = updates.manualUri?.trim() ? updates.manualUri.trim() : null;

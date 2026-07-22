@@ -39,6 +39,7 @@ import { MaintenanceDetailModal } from "@/components/MaintenanceDetailModal";
 import { DatePickerField, toIsoDateValue } from "@/components/DatePickerField";
 import type { Repair } from "@/data/demoData";
 import { matchesPropertyId } from "@/types/database";
+import { confirmDestructive, notifyUser } from "@/lib/userFeedback";
 import { useUpgrade } from "@/context/UpgradeContext";
 import {
   pickCameraForUpload,
@@ -153,10 +154,20 @@ export default function PropertyDetailContent({
   propertyId,
   initialSection = "overview",
   initialMaintenanceView,
+  openTaskId,
+  openRepairId,
+  openDocId,
+  openPhotoId,
+  openApplianceId,
 }: {
   propertyId: string;
   initialSection?: PropertySection;
   initialMaintenanceView?: MaintenanceView;
+  openTaskId?: string;
+  openRepairId?: string;
+  openDocId?: string;
+  openPhotoId?: string;
+  openApplianceId?: string;
 }) {
   const insets = useSafeAreaInsets();
   const { canAccess, showUpgrade } = useUpgrade();
@@ -211,6 +222,7 @@ export default function PropertyDetailContent({
   const [mLastCompleted, setMLastCompleted] = useState("");
   const [mNotes, setMNotes] = useState("");
   const [mPriority, setMPriority] = useState<"low" | "medium" | "high">("medium");
+  const [mPhotoUris, setMPhotoUris] = useState<string[]>([]);
   const [viewRepair, setViewRepair] = useState<Repair | null>(null);
   const [viewMaintenance, setViewMaintenance] = useState<MaintenanceItem | null>(null);
 
@@ -235,7 +247,8 @@ export default function PropertyDetailContent({
   const [aCondition, setACondition] = useState<"Excellent" | "Good" | "Fair" | "Poor" | "Replace Soon">("Good");
   const [aNotes, setANotes] = useState("");
   const [aLife, setALife] = useState("12");
-  const [aPhotoUri, setAPhotoUri] = useState<string | null>(null);
+  const [aPhotoUris, setAPhotoUris] = useState<string[]>([]);
+  const [forceOpenPhotoId, setForceOpenPhotoId] = useState<string | null>(null);
 
   // Paint
   const [pRoom, setPRoom] = useState("");
@@ -273,6 +286,83 @@ export default function PropertyDetailContent({
       setMaintenanceView(initialMaintenanceView);
     }
   }, [initialSection, initialMaintenanceView]);
+
+  // Deep-link openers from Home / alerts (taskId, repairId, docId, photoId, applianceId).
+  const openedDeepLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = [openTaskId, openRepairId, openDocId, openPhotoId, openApplianceId].filter(Boolean).join("|");
+    if (!key || openedDeepLinkRef.current === key) return;
+    openedDeepLinkRef.current = key;
+
+    if (openTaskId) {
+      const task = maintenanceItems.find((m) => m.id === openTaskId && matchesPropertyId(m.propertyId, propertyId));
+      if (task) {
+        setSection("maintenance");
+        setMaintenanceView("tasks");
+        setViewMaintenance(task);
+      }
+    }
+    if (openRepairId) {
+      const repair = repairs.find((r) => r.id === openRepairId && matchesPropertyId(r.propertyId, propertyId));
+      if (repair) {
+        setSection("maintenance");
+        setMaintenanceView("repairs");
+        setViewRepair(repair);
+      }
+    }
+    if (openDocId) {
+      const doc = documents.find((d) => d.id === openDocId && matchesPropertyId(d.propertyId, propertyId));
+      if (doc) {
+        setSection("documents");
+        setViewDocument(doc);
+      }
+    }
+    if (openPhotoId) {
+      const photo = photos.find((p) => p.id === openPhotoId && matchesPropertyId(p.propertyId, propertyId));
+      if (photo) {
+        setSection("photos");
+        setForceOpenPhotoId(photo.id);
+      }
+    }
+    if (openApplianceId) {
+      const appliance = appliances.find((a) => a.id === openApplianceId && matchesPropertyId(a.propertyId, propertyId));
+      if (appliance) {
+        setSection("maintenance");
+        setMaintenanceView("appliances");
+        setEditingId(appliance.id);
+        setAName(appliance.name);
+        setABrand(appliance.brand ?? "");
+        setAModel(appliance.model ?? "");
+        setASerial(appliance.serial ?? "");
+        setAInstall(toIsoDateValue(appliance.installDate) ?? "");
+        setAPrice(appliance.purchasePrice ?? "");
+        setAWarranty(toIsoDateValue(appliance.warrantyExpires) ?? "");
+        setACondition(appliance.condition);
+        setANotes(appliance.notes ?? "");
+        setALife(String(appliance.expectedLifeYears ?? 12));
+        const urls =
+          appliance.photoUris?.length
+            ? appliance.photoUris
+            : appliance.photoUri?.trim()
+              ? [appliance.photoUri.trim()]
+              : [];
+        setAPhotoUris(urls);
+        setModal("appliance");
+      }
+    }
+  }, [
+    openTaskId,
+    openRepairId,
+    openDocId,
+    openPhotoId,
+    openApplianceId,
+    propertyId,
+    maintenanceItems,
+    repairs,
+    documents,
+    photos,
+    appliances,
+  ]);
 
   if (!property) {
     return (
@@ -317,6 +407,7 @@ export default function PropertyDetailContent({
     setMNotes("");
     setMCategory("General");
     setMPriority("medium");
+    setMPhotoUris([]);
     setRTitle("");
     setRDate("");
     setRCost("");
@@ -335,7 +426,7 @@ export default function PropertyDetailContent({
     setACondition("Good");
     setANotes("");
     setALife("12");
-    setAPhotoUri(null);
+    setAPhotoUris([]);
     setPRoom("");
     setPBrand("");
     setPName("");
@@ -386,11 +477,11 @@ export default function PropertyDetailContent({
     setMLastCompleted(toIsoDateValue(item.lastCompleted) ?? "");
     setMNotes(item.notes ?? "");
     setMPriority(item.priority);
+    setMPhotoUris([...(item.photoUris ?? [])]);
     setModal("maintenance");
   }
 
   function openEditRepair(item: Repair) {
-    console.log("[RepairCard] tapped", { id: item.id, title: item.title });
     setViewRepair(null);
     setEditingId(item.id);
     setRTitle(item.title);
@@ -416,7 +507,9 @@ export default function PropertyDetailContent({
     setACondition(a.condition);
     setANotes(a.notes ?? "");
     setALife(String(a.expectedLifeYears ?? 12));
-    setAPhotoUri(a.photoUri?.trim() ? a.photoUri : null);
+    setAPhotoUris(
+      a.photoUris?.length ? [...a.photoUris] : a.photoUri?.trim() ? [a.photoUri.trim()] : []
+    );
     setModal("appliance");
   }
 
@@ -504,6 +597,7 @@ export default function PropertyDetailContent({
             notes: mNotes,
             priority: mPriority,
             status,
+            photoUris: mPhotoUris,
           });
           saved = { id: editingId, title: mTitle };
         } else {
@@ -518,6 +612,7 @@ export default function PropertyDetailContent({
             recurring: true,
             intervalDays: 180,
             priority: mPriority,
+            photoUris: mPhotoUris,
           });
         }
       } else if (activeModal === "repair") {
@@ -582,13 +677,11 @@ export default function PropertyDetailContent({
           nextService: "TBD",
           condition: aCondition,
           notes: aNotes,
-          photoUri: aPhotoUri?.trim() || undefined,
+          photoUris: aPhotoUris,
+          photoUri: aPhotoUris[0],
         };
         if (editingId) {
-          await updateAppliance(editingId, {
-            ...payload,
-            photoUri: aPhotoUri?.trim() ? aPhotoUri.trim() : "",
-          });
+          await updateAppliance(editingId, payload);
           saved = { id: editingId, name: aName };
         } else {
           saved = await addAppliance(payload);
@@ -782,13 +875,42 @@ export default function PropertyDetailContent({
     try {
       if (fromCamera) {
         const shot = await takePhoto({ allowsEditing: false, quality: 0.85 });
-        if (shot?.uri) setAPhotoUri(shot.uri);
+        if (shot?.uri) setAPhotoUris((prev) => [...prev, shot.uri]);
         return;
       }
-      const results = await pickImageFromLibrary({ allowsMultiple: false, allowsEditing: false, quality: 0.85 });
-      if (results?.[0]?.uri) setAPhotoUri(results[0].uri);
+      const results = await pickImageFromLibrary({
+        allowsMultiple: true,
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (results?.length) {
+        setAPhotoUris((prev) => [...prev, ...results.map((r) => r.uri)]);
+      }
     } catch (e) {
       showRealSaveError("appliance", "pick photo", e);
+    } finally {
+      setPicking(false);
+    }
+  }
+
+  async function attachMaintenancePhoto(fromCamera: boolean) {
+    setPicking(true);
+    try {
+      if (fromCamera) {
+        const shot = await takePhoto({ allowsEditing: false, quality: 0.85 });
+        if (shot?.uri) setMPhotoUris((prev) => [...prev, shot.uri]);
+        return;
+      }
+      const results = await pickImageFromLibrary({
+        allowsMultiple: true,
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (results?.length) {
+        setMPhotoUris((prev) => [...prev, ...results.map((r) => r.uri)]);
+      }
+    } catch (e) {
+      showRealSaveError("maintenance", "pick photo", e);
     } finally {
       setPicking(false);
     }
@@ -825,9 +947,18 @@ export default function PropertyDetailContent({
   async function attachRepairPhoto(fromCamera: boolean) {
     setPicking(true);
     try {
-      const picked = fromCamera ? await pickCameraForUpload() : await pickImageForUpload();
-      if (picked) {
-        setRPhotoUris((prev) => [...prev, picked.localUri]);
+      if (fromCamera) {
+        const shot = await takePhoto({ allowsEditing: false, quality: 0.85 });
+        if (shot?.uri) setRPhotoUris((prev) => [...prev, shot.uri]);
+        return;
+      }
+      const results = await pickImageFromLibrary({
+        allowsMultiple: true,
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (results?.length) {
+        setRPhotoUris((prev) => [...prev, ...results.map((r) => r.uri)]);
       }
     } catch (e) {
       showRealSaveError("property", "pick repair photo", e);
@@ -945,13 +1076,16 @@ export default function PropertyDetailContent({
               </Pressable>
             </View>
           ) : (
-            propAppliances.map((a) => (
+            propAppliances.map((a) => {
+              const thumb =
+                a.photoUris?.find((u) => Boolean(u?.trim())) || a.photoUri?.trim() || "";
+              return (
               <Card key={a.id} style={{ marginBottom: 10 }}>
                 <View style={styles.rowBetween}>
                   <View style={{ flexDirection: "row", flex: 1, gap: 10, alignItems: "center" }}>
-                    {a.photoUri ? (
+                    {thumb ? (
                       <Image
-                        source={{ uri: a.photoUri }}
+                        source={{ uri: thumb }}
                         style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: colors.bgSection }}
                         resizeMode="cover"
                       />
@@ -968,35 +1102,26 @@ export default function PropertyDetailContent({
                     <Text style={{ color: colors.primary, fontWeight: "700" }}>Edit</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() =>
-                      Alert.alert("Delete", `Remove "${a.name}"?`, [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => deleteAppliance(a.id) },
-                      ])
-                    }
+                    onPress={async () => {
+                      const ok = await confirmDestructive("Delete", `Remove "${a.name}"?`);
+                      if (ok) deleteAppliance(a.id);
+                    }}
                   >
                     <Text style={styles.deleteText}>Delete</Text>
                   </Pressable>
                 </View>
               </Card>
-            ))
+              );
+            })
           )
         ) : maintenanceView === "tasks" ? (
-          maint.length === 0 ? (
-            <View style={{ alignItems: "center", paddingVertical: 16 }}>
-              <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
-                No maintenance tasks yet.
-              </Text>
-              <Pressable style={styles.primaryButton} onPress={() => openAdd("maintenance")}>
-                <Text style={styles.primaryButtonText}>Add Maintenance Task</Text>
-              </Pressable>
-            </View>
-          ) : (
-            maint.map((item) => (
+          (() => {
+            const activeTasks = maint.filter((m) => m.status !== "Completed");
+            const completedTasks = maint.filter((m) => m.status === "Completed");
+            const renderTask = (item: MaintenanceItem) => (
               <Pressable
                 key={item.id}
                 onPress={() => {
-                  console.log("[MaintenanceCard] tapped", { id: item.id, title: item.title });
                   setViewMaintenance(item);
                 }}
               >
@@ -1006,6 +1131,9 @@ export default function PropertyDetailContent({
                       <Text style={styles.cardTitle}>{item.title}</Text>
                       <Text style={styles.muted}>
                         Due {formatDateForDisplay(item.nextDue) || "—"} · {item.category}
+                        {item.lastCompleted
+                          ? ` · Completed ${formatDateForDisplay(item.lastCompleted) || item.lastCompleted}`
+                          : ""}
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 6 }}>
@@ -1013,13 +1141,47 @@ export default function PropertyDetailContent({
                       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </View>
                   </View>
-              <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
-                View details
-              </Text>
+                  <Text style={{ color: colors.primary, fontWeight: "700", marginTop: 8, fontSize: 13 }}>
+                    View details
+                  </Text>
                 </Card>
               </Pressable>
-            ))
-          )
+            );
+
+            if (maint.length === 0) {
+              return (
+                <View style={{ alignItems: "center", paddingVertical: 16 }}>
+                  <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+                    No maintenance tasks yet.
+                  </Text>
+                  <Pressable style={styles.primaryButton} onPress={() => openAdd("maintenance")}>
+                    <Text style={styles.primaryButtonText}>Add Maintenance Task</Text>
+                  </Pressable>
+                </View>
+              );
+            }
+
+            return (
+              <View>
+                <Text style={[styles.sectionHeader, { marginBottom: 8 }]}>Active</Text>
+                {activeTasks.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+                    No active tasks.
+                  </Text>
+                ) : (
+                  activeTasks.map(renderTask)
+                )}
+                <Text style={[styles.sectionHeader, { marginTop: 12, marginBottom: 8 }]}>Completed</Text>
+                {completedTasks.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>
+                    No completed tasks yet.
+                  </Text>
+                ) : (
+                  completedTasks.map(renderTask)
+                )}
+              </View>
+            );
+          })()
         ) : propRepairs.length === 0 ? (
           <View style={{ alignItems: "center", paddingVertical: 16 }}>
             <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 12 }}>
@@ -1034,7 +1196,6 @@ export default function PropertyDetailContent({
             <Pressable
               key={r.id}
               onPress={() => {
-                console.log("[RepairCard] tapped", { id: r.id, title: r.title });
                 setViewRepair(r);
               }}
             >
@@ -1084,12 +1245,10 @@ export default function PropertyDetailContent({
                 ) : null}
               </View>
               <Pressable
-                onPress={() =>
-                  Alert.alert("Delete", `Remove "${p.room}"?`, [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: () => deletePaintColor(p.id) },
-                  ])
-                }
+                onPress={async () => {
+                  const ok = await confirmDestructive("Delete", `Remove paint for "${p.room}"?`);
+                  if (ok) deletePaintColor(p.id);
+                }}
                 style={{ marginTop: 8 }}
               >
                 <Text style={styles.deleteText}>Delete</Text>
@@ -1137,16 +1296,16 @@ export default function PropertyDetailContent({
                     key={ph.id}
                     photo={ph}
                     size={THUMB_SIZE}
+                    autoOpen={forceOpenPhotoId === ph.id}
+                    onAutoOpened={() => setForceOpenPhotoId(null)}
                     onUpdatePhoto={async (id, updates) => {
                       await updatePhoto(id, updates);
                       await refreshData().catch(() => {});
                     }}
-                    onDelete={() =>
-                      Alert.alert("Delete", "Remove this photo?", [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => deletePhoto(ph.id) },
-                      ])
-                    }
+                    onDelete={async () => {
+                      const ok = await confirmDestructive("Delete", "Remove this photo?");
+                      if (ok) deletePhoto(ph.id);
+                    }}
                   />
                 ))}
               </View>
@@ -1307,6 +1466,45 @@ export default function PropertyDetailContent({
             />
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={mNotes} onChangeText={setMNotes} multiline />
+            <Text style={styles.label}>Photos</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {Platform.OS !== "web" ? (
+                <Pressable
+                  onPress={() => attachMaintenancePhoto(true)}
+                  disabled={picking}
+                  style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.secondaryButtonText}>Take Photo</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => attachMaintenancePhoto(false)}
+                disabled={picking}
+                style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {Platform.OS === "web" ? "Choose Photos" : "Choose from Library"}
+                </Text>
+              </Pressable>
+            </View>
+            {mPhotoUris.length > 0 ? (
+              <>
+                <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>
+                  {mPhotoUris.length} photo{mPhotoUris.length === 1 ? "" : "s"} attached
+                </Text>
+                <RepairPhotoStrip
+                  urls={mPhotoUris}
+                  onDeletePhoto={(url) => setMPhotoUris((prev) => prev.filter((u) => u !== url))}
+                />
+                <Pressable
+                  onPress={() => attachMaintenancePhoto(false)}
+                  disabled={picking}
+                  style={[styles.secondaryButton, { marginTop: 8, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.secondaryButtonText}>Add More</Text>
+                </Pressable>
+              </>
+            ) : null}
           </>
         )}
 
@@ -1344,19 +1542,23 @@ export default function PropertyDetailContent({
             <TextInput style={[styles.input, styles.textArea]} placeholder="Notes…" placeholderTextColor={colors.textMuted} value={rNotes} onChangeText={setRNotes} multiline />
             <Text style={styles.label}>Photos</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={() => attachRepairPhoto(true)}
-                disabled={picking}
-                style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
-              >
-                <Text style={styles.secondaryButtonText}>Camera</Text>
-              </Pressable>
+              {Platform.OS !== "web" ? (
+                <Pressable
+                  onPress={() => attachRepairPhoto(true)}
+                  disabled={picking}
+                  style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.secondaryButtonText}>Take Photo</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => attachRepairPhoto(false)}
                 disabled={picking}
                 style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
               >
-                <Text style={styles.primaryButtonText}>Library</Text>
+                <Text style={styles.primaryButtonText}>
+                  {Platform.OS === "web" ? "Choose Photos" : "Choose from Library"}
+                </Text>
               </Pressable>
             </View>
             {picking ? (
@@ -1370,7 +1572,17 @@ export default function PropertyDetailContent({
                 <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>
                   {rPhotoUris.length} photo{rPhotoUris.length === 1 ? "" : "s"} attached
                 </Text>
-                <RepairPhotoStrip urls={rPhotoUris} />
+                <RepairPhotoStrip
+                  urls={rPhotoUris}
+                  onDeletePhoto={(url) => setRPhotoUris((prev) => prev.filter((u) => u !== url))}
+                />
+                <Pressable
+                  onPress={() => attachRepairPhoto(false)}
+                  disabled={picking}
+                  style={[styles.secondaryButton, { marginTop: 8, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.secondaryButtonText}>Add More</Text>
+                </Pressable>
               </>
             ) : (
               <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 8 }}>Optional repair photos</Text>
@@ -1414,53 +1626,45 @@ export default function PropertyDetailContent({
                 </Pressable>
               ))}
             </View>
-            <Text style={styles.label}>Appliance Photo (optional)</Text>
-            {aPhotoUri ? (
+            <Text style={styles.label}>Photos</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {Platform.OS !== "web" ? (
+                <Pressable
+                  onPress={() => attachAppliancePhoto(true)}
+                  disabled={picking}
+                  style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.secondaryButtonText}>Take Photo</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => attachAppliancePhoto(false)}
+                disabled={picking}
+                style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {Platform.OS === "web" ? "Choose Photos" : "Choose from Library"}
+                </Text>
+              </Pressable>
+            </View>
+            {aPhotoUris.length > 0 ? (
               <>
-                <Image
-                  source={{ uri: aPhotoUri }}
-                  style={{ width: "100%", height: 160, borderRadius: 12, marginBottom: 10, backgroundColor: colors.bgSection }}
-                  resizeMode="cover"
+                <Text style={{ color: colors.success, fontWeight: "700", marginTop: 8 }}>
+                  {aPhotoUris.length} photo{aPhotoUris.length === 1 ? "" : "s"} attached
+                </Text>
+                <RepairPhotoStrip
+                  urls={aPhotoUris}
+                  onDeletePhoto={(url) => setAPhotoUris((prev) => prev.filter((u) => u !== url))}
                 />
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable
-                    onPress={() => attachAppliancePhoto(false)}
-                    disabled={picking}
-                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
-                  >
-                    <Text style={styles.secondaryButtonText}>Replace</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setAPhotoUri(null)}
-                    disabled={picking || isSaving}
-                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, borderColor: colors.danger }]}
-                  >
-                    <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Remove</Text>
-                  </Pressable>
-                </View>
-              </>
-            ) : (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {Platform.OS !== "web" ? (
-                  <Pressable
-                    onPress={() => attachAppliancePhoto(true)}
-                    disabled={picking}
-                    style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
-                  >
-                    <Text style={styles.secondaryButtonText}>Camera</Text>
-                  </Pressable>
-                ) : null}
                 <Pressable
                   onPress={() => attachAppliancePhoto(false)}
                   disabled={picking}
-                  style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                  style={[styles.secondaryButton, { marginTop: 8, opacity: picking ? 0.6 : 1 }]}
                 >
-                  <Text style={styles.primaryButtonText}>
-                    {Platform.OS === "web" ? "Choose Photo" : "Library"}
-                  </Text>
+                  <Text style={styles.secondaryButtonText}>Add More</Text>
                 </Pressable>
-              </View>
-            )}
+              </>
+            ) : null}
           </>
         )}
 

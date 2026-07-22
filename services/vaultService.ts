@@ -3,7 +3,7 @@ import { omitMissingOptionalColumn } from "@/lib/dbErrors";
 import { logSaveErrorFull } from "@/lib/saveLogs";
 import { isInsertOkSelectFailed } from "@/lib/realSaveError";
 import { fetchInsertedRow, runSaveWithRetry } from "@/lib/saveReliability";
-import { isRemoteUri } from "@/services/storageService";
+import { isRemoteUri, bucketForDocumentCategory, storagePathFromUrl } from "@/services/storageService";
 import {
   setTextField,
   toNumericOrNull,
@@ -153,10 +153,24 @@ export async function updateVaultDocument(userId: string, doc: Document) {
   });
 }
 
-export async function deleteVaultDocument(userId: string, doc: Document) {
+export async function deleteVaultDocument(userId: string, doc: Document): Promise<{ storageWarning?: string }> {
   const table = tableForCategory(doc.category);
   const { error } = await supabase.from(table).delete().eq("id", doc.id).eq("user_id", userId);
   if (error) throw new Error(error.message);
+
+  const fileUrl = (doc.fileUri ?? "").trim();
+  if (!fileUrl || !isRemoteUri(fileUrl)) return {};
+
+  try {
+    const bucket = bucketForDocumentCategory(doc.category);
+    const path = storagePathFromUrl(bucket, fileUrl);
+    if (!path) return { storageWarning: "Could not resolve storage path for document cleanup." };
+    const { error: remErr } = await supabase.storage.from(bucket).remove([path]);
+    if (remErr) return { storageWarning: remErr.message };
+  } catch (e) {
+    return { storageWarning: e instanceof Error ? e.message : String(e) };
+  }
+  return {};
 }
 
 export async function fetchContractors(userId: string) {

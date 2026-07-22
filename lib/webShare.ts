@@ -1,18 +1,12 @@
 import { Alert, Linking, Platform, Share } from "react-native";
 import { buildShareMessage, buildShareUrl, SHARE_NOT_CONFIGURED_MESSAGE } from "@/lib/shareUrl";
+import { notifyUser } from "@/lib/userFeedback";
 
 export type ShareLinkResult =
   | { ok: true; url: string; method: "webshare" | "clipboard" }
   | { ok: false; url: string | null; error: string };
 
-/** Visible feedback that works on web (RN Alert.alert is a no-op on react-native-web). */
-export function notifyUser(title: string, message?: string): void {
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    window.alert(message ? `${title}\n\n${message}` : title);
-    return;
-  }
-  Alert.alert(title, message);
-}
+export { notifyUser } from "@/lib/userFeedback";
 
 async function copyTextWeb(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {

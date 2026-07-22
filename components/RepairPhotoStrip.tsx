@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -12,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/constants/theme";
+import { confirmDestructive } from "@/lib/userFeedback";
 import { resolveRepairPhotoUrl } from "@/lib/repairPhotos";
 
 const THUMB = 64;
@@ -58,19 +58,12 @@ function RepairPhotoThumb({
     displayUrl.startsWith("content:");
   const showImage = !resolving && !loadError && displayable;
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!onDelete) return;
-    Alert.alert("Delete Photo", "Remove this repair photo?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          setViewerOpen(false);
-          onDelete(storedUrl);
-        },
-      },
-    ]);
+    const ok = await confirmDestructive("Delete Photo", "Remove this repair photo?");
+    if (!ok) return;
+    setViewerOpen(false);
+    onDelete(storedUrl);
   }
 
   return (
@@ -135,7 +128,9 @@ function RepairPhotoThumb({
             </Pressable>
             {onDelete ? (
               <Pressable
-                onPress={confirmDelete}
+                onPress={() => {
+                  void confirmDelete();
+                }}
                 style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 }}
               >
                 <Ionicons name="trash-outline" size={20} color={colors.danger} />

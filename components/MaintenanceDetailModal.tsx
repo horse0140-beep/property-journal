@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardModal } from "@/components/KeyboardModal";
 import { formatPickerDateDisplay, toIsoDateValue } from "@/components/DatePickerField";
 import { colors, styles } from "@/constants/theme";
 import type { MaintenanceItem } from "@/context/HomeWiseContext";
+import { confirmDestructive, notifyUser } from "@/lib/userFeedback";
+import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 
 type MaintenanceDetailModalProps = {
   visible: boolean;
@@ -65,12 +67,6 @@ export function MaintenanceDetailModal({
   const completingRef = useRef(false);
 
   useEffect(() => {
-    if (visible && item) {
-      console.log("[MaintenanceDetail] opened", { id: item.id, title: item.title });
-    }
-  }, [visible, item?.id]);
-
-  useEffect(() => {
     if (!visible) {
       setCompleting(false);
       completingRef.current = false;
@@ -81,19 +77,13 @@ export function MaintenanceDetailModal({
 
   const notes = String(item.notes ?? "").trim();
   const canComplete = item.status !== "Completed";
+  const photos = item.photoUris ?? [];
 
-  function handleDelete() {
-    Alert.alert("Delete Task", `Remove "${item!.title}"?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          onDelete(item!.id);
-          onClose();
-        },
-      },
-    ]);
+  async function handleDelete() {
+    const ok = await confirmDestructive("Delete Task", `Remove "${item!.title}"?`);
+    if (!ok) return;
+    onDelete(item!.id);
+    onClose();
   }
 
   async function handleComplete() {
@@ -101,10 +91,19 @@ export function MaintenanceDetailModal({
     completingRef.current = true;
     setCompleting(true);
     try {
-      await onComplete(item!.id);
-      // Keep modal open so updated status/dates are visible immediately.
+      const saved = await onComplete(item!.id);
+      const next = saved && typeof saved === "object" ? saved : null;
+      if (next?.recurring) {
+        notifyUser(
+          "Task marked complete",
+          next.nextDue ? `Next due ${next.nextDue}` : item!.title
+        );
+      } else {
+        notifyUser("Task marked complete", item!.title);
+        onClose();
+      }
     } catch (e) {
-      Alert.alert(
+      notifyUser(
         "Could not complete",
         e instanceof Error ? e.message : "Please try again when you are online."
       );
@@ -139,6 +138,13 @@ export function MaintenanceDetailModal({
       </View>
       <DetailRow label="Schedule" value={formatRecurring(item)} />
 
+      {photos.length > 0 ? (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>Photos</Text>
+          <RepairPhotoStrip urls={photos} />
+        </View>
+      ) : null}
+
       <View style={{ marginBottom: 12 }}>
         <Text style={styles.label}>Notes</Text>
         <Text
@@ -157,7 +163,6 @@ export function MaintenanceDetailModal({
         style={[styles.primaryButton, completing && { opacity: 0.6 }]}
         disabled={completing}
         onPress={() => {
-          console.log("[MaintenanceDetail] edit selected", { id: item.id, title: item.title });
           onEdit(item);
         }}
       >
@@ -189,7 +194,13 @@ export function MaintenanceDetailModal({
         <Text style={styles.secondaryButtonText}>Close</Text>
       </Pressable>
 
-      <Pressable style={[styles.ghostButton, { marginTop: 4 }]} onPress={handleDelete} disabled={completing}>
+      <Pressable
+        style={[styles.ghostButton, { marginTop: 4 }]}
+        onPress={() => {
+          void handleDelete();
+        }}
+        disabled={completing}
+      >
         <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete</Text>
       </Pressable>
     </KeyboardModal>

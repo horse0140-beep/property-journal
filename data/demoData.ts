@@ -29,6 +29,8 @@ export type MaintenanceItem = {
   recurring: boolean;
   intervalDays?: number;
   priority: "low" | "medium" | "high";
+  /** Stored maintenance photo URLs (maintenance_items.photo_urls). */
+  photoUris?: string[];
 };
 
 export type Repair = {
@@ -61,6 +63,9 @@ export type Appliance = {
   nextService: string;
   condition: "Excellent" | "Good" | "Fair" | "Poor" | "Replace Soon";
   notes: string;
+  /** Multi-photo URLs (appliances.photo_urls). Prefer this over photoUri. */
+  photoUris?: string[];
+  /** First photo mirror of photoUris[0] / appliances.photo_url (legacy). */
   photoUri?: string;
   manualUri?: string;
   receiptUri?: string;

@@ -485,9 +485,48 @@ export function HomeWiseProvider({
         bumpScore(item.propertyId);
         if (!isSignedIn) return newItem;
         await assertOnlineForWrite();
+        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
         try {
           const userId = await requireAuthUserId();
-          const created = await maintenanceService.createMaintenanceItem(userId, newItem);
+          let payload = newItem;
+          const localPhotos = (item.photoUris ?? []).filter((u) => u?.trim());
+          if (localPhotos.length) {
+            const bucket = getPhotoBucket("property");
+            const uploaded: string[] = [];
+            for (let i = 0; i < localPhotos.length; i++) {
+              const uri = localPhotos[i];
+              if (isRemoteUri(uri)) {
+                uploaded.push(uri);
+                continue;
+              }
+              const result = await uploadLocalFile(
+                userId,
+                bucket,
+                uri,
+                `maintenance_${newItem.id}_${i}.jpg`,
+                undefined,
+                "image/jpeg",
+                [item.propertyId, newItem.id]
+              );
+              uploadedPaths.push({ bucket: result.bucket, path: result.path });
+              if (!result.url?.trim() || !isRemoteUri(result.url)) {
+                throw new Error("Maintenance photo upload did not return a usable URL.");
+              }
+              uploaded.push(result.url);
+            }
+            payload = { ...payload, photoUris: uploaded };
+          }
+
+          let created: MaintenanceItem;
+          try {
+            created = await maintenanceService.createMaintenanceItem(userId, payload);
+          } catch (insertError) {
+            for (const u of uploadedPaths) {
+              await deleteStorageObject(u.bucket, u.path).catch(() => undefined);
+            }
+            throw insertError;
+          }
+
           setState((s) => ({
             ...s,
             maintenanceItems: s.maintenanceItems.map((m) => (m.id === newItem.id ? created : m)),
@@ -512,13 +551,59 @@ export function HomeWiseProvider({
         if (pid) bumpScore(pid);
         if (!isSignedIn) return;
         await assertOnlineForWrite();
+        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
         try {
           const userId = await requireAuthUserId();
-          const saved = await maintenanceService.updateMaintenanceItem(userId, id, item);
-          setState((s) => ({
-            ...s,
-            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
-          }));
+          const updates: Partial<MaintenanceItem> = { ...item };
+          if (item.photoUris !== undefined) {
+            const bucket = getPhotoBucket("property");
+            const uploaded: string[] = [];
+            for (let i = 0; i < item.photoUris.length; i++) {
+              const uri = item.photoUris[i];
+              if (!uri?.trim()) continue;
+              if (isRemoteUri(uri)) {
+                uploaded.push(uri);
+                continue;
+              }
+              const result = await uploadLocalFile(
+                userId,
+                bucket,
+                uri,
+                `maintenance_${id}_${i}_${Date.now()}.jpg`,
+                undefined,
+                "image/jpeg",
+                [previous?.propertyId ?? "", id]
+              );
+              uploadedPaths.push({ bucket: result.bucket, path: result.path });
+              if (!result.url?.trim() || !isRemoteUri(result.url)) {
+                throw new Error("Maintenance photo upload did not return a usable URL.");
+              }
+              uploaded.push(result.url);
+            }
+            updates.photoUris = uploaded;
+          }
+
+          try {
+            const saved = await maintenanceService.updateMaintenanceItem(userId, id, updates);
+            setState((s) => ({
+              ...s,
+              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
+            }));
+
+            if (item.photoUris !== undefined && previous?.photoUris?.length) {
+              const nextSet = new Set(updates.photoUris ?? []);
+              for (const url of previous.photoUris) {
+                if (url && isRemoteUri(url) && !nextSet.has(url)) {
+                  await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
+                }
+              }
+            }
+          } catch (updateError) {
+            for (const u of uploadedPaths) {
+              await deleteStorageObject(u.bucket, u.path).catch(() => undefined);
+            }
+            throw updateError;
+          }
         } catch (e) {
           if (previous) {
             setState((s) => ({
@@ -531,12 +616,20 @@ export function HomeWiseProvider({
       },
 
       deleteMaintenanceItem: (id) => {
-        const pid = state.maintenanceItems.find((m) => m.id === id)?.propertyId;
+        const item = state.maintenanceItems.find((m) => m.id === id);
+        const pid = item?.propertyId;
         setState((s) => ({ ...s, maintenanceItems: s.maintenanceItems.filter((m) => m.id !== id) }));
         if (pid) bumpScore(pid);
-        if (isSignedIn) {
+        if (isSignedIn && item) {
           void requireAuthUserId()
-            .then((userId) => maintenanceService.deleteMaintenanceItem(userId, id))
+            .then(async (userId) => {
+              await maintenanceService.deleteMaintenanceItem(userId, id);
+              for (const url of item.photoUris ?? []) {
+                if (url && isRemoteUri(url)) {
+                  await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
+                }
+              }
+            })
             .catch((e) => syncError("Delete maintenance", e));
         }
       },
@@ -733,45 +826,64 @@ export function HomeWiseProvider({
         if (!displayName) {
           throw new Error("Appliance name is required.");
         }
-        const newItem = { ...a, id: uuid(), name: displayName };
+        const inputPhotos =
+          a.photoUris?.length
+            ? a.photoUris.filter((u) => Boolean(u?.trim()))
+            : a.photoUri?.trim()
+              ? [a.photoUri.trim()]
+              : [];
+        const newItem = {
+          ...a,
+          id: uuid(),
+          name: displayName,
+          photoUris: inputPhotos,
+          photoUri: inputPhotos[0],
+        };
         setState((s) => ({ ...s, appliances: [newItem, ...s.appliances] }));
         bumpScore(a.propertyId);
         if (!isSignedIn) return newItem;
         await assertOnlineForWrite();
 
-        let uploadedBucket: ReturnType<typeof getPhotoBucket> | null = null;
-        let uploadedPath: string | null = null;
+        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
 
         try {
           const userId = await requireAuthUserId();
           let item = newItem;
 
-          if (a.photoUri?.trim() && !isRemoteUri(a.photoUri)) {
+          if (inputPhotos.length) {
             const bucket = getPhotoBucket("property");
-            const uploaded = await uploadLocalFile(
-              userId,
-              bucket,
-              a.photoUri,
-              `appliance_${newItem.id}.jpg`,
-              undefined,
-              "image/jpeg",
-              [a.propertyId, newItem.id]
-            );
-            uploadedBucket = uploaded.bucket;
-            uploadedPath = uploaded.path;
-            if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
-              await deleteStorageObject(uploaded.bucket, uploaded.path);
-              throw new Error("Appliance photo upload did not return a usable URL.");
+            const uploaded: string[] = [];
+            for (let i = 0; i < inputPhotos.length; i++) {
+              const uri = inputPhotos[i];
+              if (isRemoteUri(uri)) {
+                uploaded.push(uri);
+                continue;
+              }
+              const result = await uploadLocalFile(
+                userId,
+                bucket,
+                uri,
+                `appliance_${newItem.id}_${i}.jpg`,
+                undefined,
+                "image/jpeg",
+                [a.propertyId, newItem.id]
+              );
+              uploadedPaths.push({ bucket: result.bucket, path: result.path });
+              if (!result.url?.trim() || !isRemoteUri(result.url)) {
+                await deleteStorageObject(result.bucket, result.path);
+                throw new Error("Appliance photo upload did not return a usable URL.");
+              }
+              uploaded.push(result.url);
             }
-            item = { ...item, photoUri: uploaded.url };
+            item = { ...item, photoUris: uploaded, photoUri: uploaded[0] };
           }
 
           let created: Appliance;
           try {
             created = await applianceService.createAppliance(userId, item);
           } catch (insertError) {
-            if (uploadedBucket && uploadedPath) {
-              await deleteStorageObject(uploadedBucket, uploadedPath);
+            for (const u of uploadedPaths) {
+              await deleteStorageObject(u.bucket, u.path);
             }
             throw insertError;
           }
@@ -801,67 +913,88 @@ export function HomeWiseProvider({
         if (!isSignedIn || !previous) return;
         await assertOnlineForWrite();
 
-        let uploadedBucket: ReturnType<typeof getPhotoBucket> | null = null;
-        let uploadedPath: string | null = null;
-        let uploadedUrl: string | null = null;
+        const uploadedPaths: { bucket: ReturnType<typeof getPhotoBucket>; path: string }[] = [];
 
         try {
           const userId = await requireAuthUserId();
           const updates: Partial<Appliance> = { ...a };
           const propertyId = previous.propertyId;
 
-          if (a.photoUri !== undefined) {
-            const next = (a.photoUri ?? "").trim();
-            if (!next) {
-              updates.photoUri = "";
-            } else if (!isRemoteUri(next)) {
-              const bucket = getPhotoBucket("property");
-              const uploaded = await uploadLocalFile(
+          const nextPhotos =
+            a.photoUris !== undefined
+              ? a.photoUris.filter((u) => Boolean(u?.trim()))
+              : a.photoUri !== undefined
+                ? a.photoUri.trim()
+                  ? [a.photoUri.trim()]
+                  : []
+                : undefined;
+
+          if (nextPhotos !== undefined) {
+            const bucket = getPhotoBucket("property");
+            const uploaded: string[] = [];
+            for (let i = 0; i < nextPhotos.length; i++) {
+              const uri = nextPhotos[i];
+              if (isRemoteUri(uri)) {
+                uploaded.push(uri);
+                continue;
+              }
+              const result = await uploadLocalFile(
                 userId,
                 bucket,
-                next,
-                `appliance_${id}.jpg`,
+                uri,
+                `appliance_${id}_${i}_${Date.now()}.jpg`,
                 undefined,
                 "image/jpeg",
                 [propertyId, id]
               );
-              uploadedBucket = uploaded.bucket;
-              uploadedPath = uploaded.path;
-              uploadedUrl = uploaded.url;
-              if (!uploaded.url?.trim() || !isRemoteUri(uploaded.url)) {
-                await deleteStorageObject(uploaded.bucket, uploaded.path);
+              uploadedPaths.push({ bucket: result.bucket, path: result.path });
+              if (!result.url?.trim() || !isRemoteUri(result.url)) {
+                await deleteStorageObject(result.bucket, result.path);
                 throw new Error("Appliance photo upload did not return a usable URL.");
               }
-              updates.photoUri = uploaded.url;
+              uploaded.push(result.url);
             }
+            updates.photoUris = uploaded;
+            updates.photoUri = uploaded[0] ?? "";
           }
 
           try {
             await applianceService.updateAppliance(userId, id, updates);
           } catch (updateError) {
-            if (uploadedBucket && uploadedPath) {
-              await deleteStorageObject(uploadedBucket, uploadedPath);
+            for (const u of uploadedPaths) {
+              await deleteStorageObject(u.bucket, u.path);
             }
             throw updateError;
           }
 
-          // Cleanup previous storage object after successful replace/remove.
-          if (a.photoUri !== undefined) {
-            const prevUrl = previous.photoUri?.trim();
-            const nextUrl = (updates.photoUri ?? "").trim();
-            if (prevUrl && isRemoteUri(prevUrl) && prevUrl !== nextUrl) {
-              await deleteFromStorage(getPhotoBucket("property"), prevUrl).catch(() => undefined);
+          if (nextPhotos !== undefined) {
+            const prevList =
+              previous.photoUris?.length
+                ? previous.photoUris
+                : previous.photoUri?.trim()
+                  ? [previous.photoUri.trim()]
+                  : [];
+            const nextSet = new Set(updates.photoUris ?? []);
+            for (const url of prevList) {
+              if (url && isRemoteUri(url) && !nextSet.has(url)) {
+                await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
+              }
             }
           }
 
-          if (uploadedUrl) {
-            setState((s) => ({
-              ...s,
-              appliances: s.appliances.map((ap) =>
-                ap.id === id ? { ...ap, ...updates, photoUri: uploadedUrl! } : ap
-              ),
-            }));
-          }
+          setState((s) => ({
+            ...s,
+            appliances: s.appliances.map((ap) =>
+              ap.id === id
+                ? {
+                    ...ap,
+                    ...updates,
+                    photoUris: updates.photoUris ?? ap.photoUris,
+                    photoUri: updates.photoUri ?? ap.photoUri,
+                  }
+                : ap
+            ),
+          }));
         } catch (e) {
           if (previous) {
             setState((s) => ({
@@ -882,8 +1015,16 @@ export function HomeWiseProvider({
           void requireAuthUserId()
             .then(async (userId) => {
               await applianceService.deleteAppliance(userId, id);
-              if (appliance.photoUri && isRemoteUri(appliance.photoUri)) {
-                await deleteFromStorage(getPhotoBucket("property"), appliance.photoUri);
+              const urls =
+                appliance.photoUris?.length
+                  ? appliance.photoUris
+                  : appliance.photoUri
+                    ? [appliance.photoUri]
+                    : [];
+              for (const url of urls) {
+                if (url && isRemoteUri(url)) {
+                  await deleteFromStorage(getPhotoBucket("property"), url);
+                }
               }
             })
             .catch((e) => syncError("Delete appliance", e));
@@ -1015,7 +1156,12 @@ export function HomeWiseProvider({
         if (pid) bumpScore(pid);
         if (isSignedIn && doc) {
           void requireAuthUserId()
-            .then((userId) => vaultService.deleteVaultDocument(userId, doc))
+            .then(async (userId) => {
+              const result = await vaultService.deleteVaultDocument(userId, doc);
+              if (result.storageWarning) {
+                syncError("Document deleted — storage cleanup warning", new Error(result.storageWarning));
+              }
+            })
             .catch((e) => syncError("Delete document", e));
         }
       },
@@ -1142,7 +1288,14 @@ export function HomeWiseProvider({
       deletePhoto: (id) => {
         setState((s) => ({ ...s, photos: s.photos.filter((p) => p.id !== id) }));
         if (isSignedIn) {
-          void photoService.deletePhoto(id).catch((e) => syncError("Delete photo", e));
+          void photoService
+            .deletePhoto(id)
+            .then((result) => {
+              if (result.storageWarning) {
+                syncError("Photo deleted — storage cleanup warning", new Error(result.storageWarning));
+              }
+            })
+            .catch((e) => syncError("Delete photo", e));
         }
       },
 

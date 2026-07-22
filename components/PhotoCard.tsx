@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -23,6 +22,7 @@ import {
 import { auditPipelineStep } from "@/lib/photoUploadAudit";
 import { PHOTO_CATEGORIES } from "@/components/property/propertyDetailConstants";
 import type { PhotoItem } from "@/data/demoData";
+import { notifyUser } from "@/lib/userFeedback";
 
 type PhotoCardProps = {
   photo: PhotoItem | Record<string, unknown>;
@@ -31,9 +31,21 @@ type PhotoCardProps = {
   onUpdatePhoto?: (id: string, updates: { caption: string; category: string }) => Promise<void>;
   style?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
+  /** Open the full-screen viewer once the image is ready (deep-link from Home). */
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
 };
 
-export function PhotoCard({ photo, size, onDelete, onUpdatePhoto, style, imageStyle }: PhotoCardProps) {
+export function PhotoCard({
+  photo,
+  size,
+  onDelete,
+  onUpdatePhoto,
+  style,
+  imageStyle,
+  autoOpen,
+  onAutoOpened,
+}: PhotoCardProps) {
   const insets = useSafeAreaInsets();
   const [displayUrl, setDisplayUrl] = useState("");
   const [resolving, setResolving] = useState(true);
@@ -75,6 +87,13 @@ export function PhotoCard({ photo, size, onDelete, onUpdatePhoto, style, imageSt
 
   const showImage = !resolving && !loadError && hasDisplayablePhotoUrl(displayUrl);
 
+  useEffect(() => {
+    if (!autoOpen || !showImage || viewerOpen) return;
+    setEditing(false);
+    setViewerOpen(true);
+    onAutoOpened?.();
+  }, [autoOpen, showImage, viewerOpen, onAutoOpened]);
+
   function openViewer() {
     if (!showImage) return;
     setEditing(false);
@@ -103,7 +122,7 @@ export function PhotoCard({ photo, size, onDelete, onUpdatePhoto, style, imageSt
       setEditing(false);
       closeViewer();
     } catch (e) {
-      Alert.alert("Save Failed", e instanceof Error ? e.message : "Could not save photo details.");
+      notifyUser("Save Failed", e instanceof Error ? e.message : "Could not save photo details.");
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,5 @@
 import {
-  ScrollView, Text, View, Pressable, StyleSheet, RefreshControl, Modal,
+  ScrollView, Text, View, Pressable, StyleSheet, RefreshControl, Modal, Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -268,40 +268,46 @@ export default function HomeScreen() {
     const days = (expiry.getTime() - Date.now()) / 86400000;
     return days >= 0 && days <= 60;
   });
+  const overdueTasks = propMaintenance.filter((m) => m.status === "Overdue");
+  const attentionAppliances = appliances.filter(
+    (a) => a.propertyId === propertyId && ["Poor", "Replace Soon", "Fair"].includes(a.condition)
+  );
   const alerts = [
-    expiringWarranties.length > 0 && {
+    expiringWarranties[0] && {
       icon: "shield-checkmark-outline",
       color: colors.dangerBg,
       iconColor: colors.danger,
       text: `${expiringWarranties.length} Warrant${expiringWarranties.length > 1 ? "ies" : "y"} Expiring Soon`,
       sub: "See details",
-      route: `/properties/${propertyId}?section=documents`,
+      route: `/properties/${propertyId}?section=documents&docId=${expiringWarranties[0].id}`,
     },
-    appliances.filter((a) => a.propertyId === propertyId && ["Poor", "Replace Soon", "Fair"].includes(a.condition)).length > 0 && {
+    attentionAppliances[0] && {
       icon: "warning-outline",
       color: colors.warningBg,
       iconColor: colors.warning,
       text: "Appliance Needs Attention",
       sub: "Check now",
-      route: `/properties/${propertyId}?section=maintenance&tab=appliances`,
+      route: `/properties/${propertyId}?section=maintenance&tab=appliances&applianceId=${attentionAppliances[0].id}`,
     },
-    propMaintenance.filter((m) => m.status === "Overdue").length > 0 && {
+    overdueTasks[0] && {
       icon: "time-outline",
       color: colors.infoBg,
       iconColor: colors.info,
-      text: `${propMaintenance.filter((m) => m.status === "Overdue").length} Overdue Maintenance Task${propMaintenance.filter((m) => m.status === "Overdue").length > 1 ? "s" : ""}`,
+      text: `${overdueTasks.length} Overdue Maintenance Task${overdueTasks.length > 1 ? "s" : ""}`,
       sub: "View now",
-      route: `/properties/${propertyId}?section=maintenance`,
+      route: `/properties/${propertyId}?section=maintenance&taskId=${overdueTasks[0].id}`,
     },
   ].filter(Boolean) as { icon: string; color: string; iconColor: string; text: string; sub: string; route: string }[];
 
-  const SCORE_BREAKDOWN = [
-    { label: "Maintenance", value: score.maintenance, icon: "construct-outline" },
-    { label: "Appliances",  value: score.appliances,  icon: "hardware-chip-outline" },
-    { label: "Repairs",     value: score.repairs,     icon: "hammer-outline" },
-    { label: "Warranty",    value: score.warranty,    icon: "shield-checkmark-outline" },
-    { label: "Inspections", value: score.inspections, icon: "clipboard-outline" },
+  const SCORE_BREAKDOWN: { label: string; value: number; icon: string; category: string }[] = [
+    { label: "Maintenance", value: score.maintenance, icon: "construct-outline", category: "maintenance" },
+    { label: "Appliances", value: score.appliances, icon: "hardware-chip-outline", category: "appliances" },
+    { label: "Repairs", value: score.repairs, icon: "hammer-outline", category: "exterior" },
+    { label: "Warranty", value: score.warranty, icon: "shield-checkmark-outline", category: "warranty" },
+    { label: "Inspections", value: score.inspections, icon: "clipboard-outline", category: "documents" },
   ];
+
+  const webPointer = Platform.OS === "web" ? ({ cursor: "pointer" } as const) : null;
 
   function scoreColor(v: number) {
     if (v >= 90) return colors.scoreExcellent;
@@ -729,12 +735,18 @@ export default function HomeScreen() {
                   return (
                     <Pressable
                       key={task.id}
-                      onPress={() => router.push(`/properties/${propertyId}?section=maintenance`)}
-                      style={{
-                        flexDirection: "row", alignItems: "center", gap: 8, padding: 11,
-                        borderBottomWidth: i < upcomingTasks.length - 1 ? 1 : 0,
-                        borderBottomColor: colors.border,
-                      }}
+                      onPress={() =>
+                        router.push(`/properties/${propertyId}?section=maintenance&taskId=${task.id}`)
+                      }
+                      style={({ pressed }) => [
+                        {
+                          flexDirection: "row", alignItems: "center", gap: 8, padding: 11,
+                          borderBottomWidth: i < upcomingTasks.length - 1 ? 1 : 0,
+                          borderBottomColor: colors.border,
+                        },
+                        webPointer,
+                        pressed && { opacity: 0.85 },
+                      ]}
                     >
                       <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: s.bg, alignItems: "center", justifyContent: "center" }}>
                         <Ionicons name={s.icon as any} size={14} color={s.color} />
@@ -778,13 +790,17 @@ export default function HomeScreen() {
               ) : (
                 alerts.map((a: any, i: number) => (
                   <Pressable
-                    key={i}
+                    key={a.route}
                     onPress={() => router.push(a.route)}
-                    style={{
-                      flexDirection: "row", alignItems: "center", gap: 8, padding: 11,
-                      borderBottomWidth: i < alerts.length - 1 ? 1 : 0,
-                      borderBottomColor: colors.border,
-                    }}
+                    style={({ pressed }) => [
+                      {
+                        flexDirection: "row", alignItems: "center", gap: 8, padding: 11,
+                        borderBottomWidth: i < alerts.length - 1 ? 1 : 0,
+                        borderBottomColor: colors.border,
+                      },
+                      webPointer,
+                      pressed && { opacity: 0.85 },
+                    ]}
                   >
                     <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: a.color, alignItems: "center", justifyContent: "center" }}>
                       <Ionicons name={a.icon} size={14} color={a.iconColor} />
@@ -823,12 +839,18 @@ export default function HomeScreen() {
             flexDirection: "row", padding: 14, justifyContent: "space-between",
           }}>
             {SCORE_BREAKDOWN.map((s) => (
-              <View key={s.label} style={{ alignItems: "center", flex: 1 }}>
+              <Pressable
+                key={s.label}
+                onPress={() => router.push({ pathname: "/score/[category]", params: { category: s.category } })}
+                style={({ pressed }) => [{ alignItems: "center", flex: 1 }, webPointer, pressed && { opacity: 0.8 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`${s.label} score ${s.value}`}
+              >
                 <Ionicons name={s.icon as any} size={16} color={colors.textMuted} />
                 <Text style={{ color: scoreColor(s.value), fontSize: 20, fontWeight: "900", marginTop: 3 }}>{s.value}</Text>
                 <Text style={{ color: scoreColor(s.value), fontSize: 9, fontWeight: "700" }}>{scoreLabel(s.value)}</Text>
                 <Text style={{ color: colors.textMuted, fontSize: 9, marginTop: 1, textAlign: "center" }}>{s.label}</Text>
-              </View>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -839,14 +861,20 @@ export default function HomeScreen() {
           <View style={{ minWidth: 0 }}>
             <View style={styles.sectionLabelRow}>
               <Text style={{ color: colors.textPrimary, fontWeight: "800", fontSize: 12 }}>RECENT REPAIRS</Text>
-              <Pressable onPress={() => router.push(`/properties/${selectedProperty.id}?section=maintenance`)}><Text style={styles.viewAllText}>All</Text></Pressable>
+              <Pressable onPress={() => router.push(`/properties/${selectedProperty.id}?section=maintenance&tab=repairs`)}><Text style={styles.viewAllText}>All</Text></Pressable>
             </View>
             <View style={{ backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
               {propRepairs.length === 0 ? (
                 <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", padding: 12 }}>None yet</Text>
               ) : (
                 propRepairs.slice(0, 3).map((r) => (
-                  <View key={r.id} style={{ marginBottom: 10 }}>
+                  <Pressable
+                    key={r.id}
+                    onPress={() =>
+                      router.push(`/properties/${propertyId}?section=maintenance&tab=repairs&repairId=${r.id}`)
+                    }
+                    style={({ pressed }) => [{ marginBottom: 10 }, webPointer, pressed && { opacity: 0.85 }]}
+                  >
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: colors.bgSection, alignItems: "center", justifyContent: "center" }}>
                         <Ionicons name="hammer-outline" size={15} color={colors.primary} />
@@ -855,11 +883,12 @@ export default function HomeScreen() {
                         <Text style={{ color: colors.textPrimary, fontWeight: "700", fontSize: 12 }} numberOfLines={1}>{r.title}</Text>
                         <Text style={{ color: colors.textMuted, fontSize: 10 }}>{r.date} · ${r.cost}</Text>
                       </View>
+                      <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
                     </View>
                     <View style={{ backgroundColor: colors.successBg, alignSelf: "flex-start", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, marginTop: 3, marginLeft: 40 }}>
                       <Text style={{ color: colors.success, fontWeight: "700", fontSize: 9 }}>Completed</Text>
                     </View>
-                  </View>
+                  </Pressable>
                 ))
               )}
             </View>
@@ -875,7 +904,17 @@ export default function HomeScreen() {
                 <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", padding: 12 }}>None yet</Text>
               ) : (
                 propDocs.slice(0, 3).map((d) => (
-                  <View key={d.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Pressable
+                    key={d.id}
+                    onPress={() =>
+                      router.push(`/properties/${propertyId}?section=documents&docId=${d.id}`)
+                    }
+                    style={({ pressed }) => [
+                      { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+                      webPointer,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
                     <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: "#FEE2E2", alignItems: "center", justifyContent: "center" }}>
                       <Ionicons name="document" size={15} color={colors.danger} />
                     </View>
@@ -883,7 +922,8 @@ export default function HomeScreen() {
                       <Text style={{ color: colors.textPrimary, fontWeight: "600", fontSize: 12 }} numberOfLines={1}>{d.title}</Text>
                       <Text style={{ color: colors.textMuted, fontSize: 10 }}>{d.uploadDate}</Text>
                     </View>
-                  </View>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                  </Pressable>
                 ))
               )}
             </View>

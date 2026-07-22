@@ -202,6 +202,9 @@ export { propertyPartialToRow };
 
 export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem {
   const interval = row.interval_days;
+  const photoUris = Array.isArray(row.photo_urls)
+    ? (row.photo_urls as string[]).map((u) => String(u ?? "").trim()).filter(Boolean)
+    : [];
   return {
     id: row.id as string,
     propertyId: row.property_id as string,
@@ -215,6 +218,7 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
     recurring: Boolean(row.recurring),
     intervalDays: interval === null || interval === undefined ? undefined : Number(interval),
     priority: (row.priority as MaintenanceItem["priority"]) ?? "medium",
+    photoUris,
   };
 }
 
@@ -240,6 +244,10 @@ export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<str
   setNumericFieldOmit(row, "interval_days", m.intervalDays);
 
   if (m.recurring === true) row.recurring = true;
+
+  if (m.photoUris !== undefined) {
+    row.photo_urls = m.photoUris.filter((u) => Boolean(String(u ?? "").trim()));
+  }
 
   return row;
 }
@@ -293,6 +301,11 @@ export function rowToAppliance(row: Record<string, unknown>): Appliance {
   const serial = toDisplayString(row.serial_number ?? row.serial);
   const installDate = toIsoOrEmpty(row.purchase_date ?? row.install_date);
   const warrantyExpires = toIsoOrEmpty(row.warranty_expiration ?? row.warranty_expires);
+  const fromArray = Array.isArray(row.photo_urls)
+    ? (row.photo_urls as string[]).map((u) => String(u ?? "").trim()).filter(Boolean)
+    : [];
+  const singular = parsePhotoUri(row.photo_url);
+  const photoUris = fromArray.length > 0 ? fromArray : singular ? [singular] : [];
 
   return {
     id: row.id as string,
@@ -310,7 +323,8 @@ export function rowToAppliance(row: Record<string, unknown>): Appliance {
     nextService: toDisplayString(row.next_service),
     condition: (row.condition as Appliance["condition"]) ?? "Good",
     notes: toDisplayString(row.notes),
-    photoUri: parsePhotoUri(row.photo_url),
+    photoUris,
+    photoUri: photoUris[0],
     manualUri: parsePhotoUri(row.manual_url),
     receiptUri: parsePhotoUri(row.receipt_url),
   };
@@ -348,10 +362,21 @@ export function applianceToRow(userId: string, a: Appliance): Record<string, unk
   setTextField(row, "condition", a.condition || "Good");
   setTextField(row, "notes", a.notes);
 
-  const photo = parsePhotoUri(a.photoUri);
-  if (a.photoUri !== undefined) {
-    row.photo_url = photo || null;
+  const photoUris =
+    a.photoUris !== undefined
+      ? a.photoUris.map((u) => parsePhotoUri(u)).filter(Boolean)
+      : a.photoUri !== undefined
+        ? (() => {
+            const photo = parsePhotoUri(a.photoUri);
+            return photo ? [photo] : [];
+          })()
+        : undefined;
+
+  if (photoUris !== undefined) {
+    row.photo_urls = photoUris;
+    row.photo_url = photoUris[0] ?? null;
   }
+
   const manual = parsePhotoUri(a.manualUri);
   if (a.manualUri !== undefined) {
     row.manual_url = manual || null;

@@ -1,5 +1,4 @@
 import {
-  Alert,
   Image,
   Platform,
   Pressable,
@@ -12,6 +11,7 @@ import { KeyboardModal } from "@/components/KeyboardModal";
 import { colors, styles } from "@/constants/theme";
 import { formatDateForDisplay } from "@/lib/dateForDatabase";
 import { openExternalUrl } from "@/lib/openExternalUrl";
+import { confirmDestructive, notifyUser } from "@/lib/userFeedback";
 import type { Document } from "@/data/demoData";
 import {
   hasDocumentPreviewUrl,
@@ -54,20 +54,20 @@ export function DocumentViewerModal({
 
   async function handleOpen() {
     if (!resolvedUrl) {
-      Alert.alert("No File", "No file URL is available for this document.");
+      notifyUser("No File", "No file URL is available for this document.");
       return;
     }
 
     try {
       await openExternalUrl(resolvedUrl);
     } catch (e) {
-      Alert.alert("Open Failed", e instanceof Error ? e.message : "Could not open file.");
+      notifyUser("Open Failed", e instanceof Error ? e.message : "Could not open file.");
     }
   }
 
   async function handleShare() {
     if (!resolvedUrl) {
-      Alert.alert("No File", "No file URL is available to share.");
+      notifyUser("No File", "No file URL is available to share.");
       return;
     }
 
@@ -82,18 +82,11 @@ export function DocumentViewerModal({
     }
   }
 
-  function handleDelete() {
-    Alert.alert("Delete", `Remove "${doc.title}"?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          onDelete(doc.id);
-          onClose();
-        },
-      },
-    ]);
+  async function handleDelete() {
+    const ok = await confirmDestructive("Delete", `Remove "${doc.title}"?`);
+    if (!ok) return;
+    onDelete(doc.id);
+    onClose();
   }
 
   return (
@@ -197,7 +190,7 @@ export function DocumentViewerModal({
         <Text style={styles.secondaryButtonText}>Share</Text>
       </Pressable>
 
-      <Pressable style={[styles.secondaryButton, { borderColor: colors.danger }]} onPress={handleDelete}>
+      <Pressable style={[styles.secondaryButton, { borderColor: colors.danger }]} onPress={() => { void handleDelete(); }}>
         <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>Delete</Text>
       </Pressable>
 

@@ -27,6 +27,7 @@ export const MAINTENANCE_OPTIONAL_COLUMNS = [
   "notes",
   "category",
   "status",
+  "photo_urls",
 ] as const;
 
 export const REPAIR_OPTIONAL_COLUMNS = [
@@ -45,6 +46,7 @@ export const APPLIANCE_OPTIONAL_COLUMNS = [
   // the valid "name" column when the error is about "appliance_name".
   "appliance_name",
   "name",
+  "photo_urls",
   "photo_url",
   "manual_url",
   "receipt_url",
