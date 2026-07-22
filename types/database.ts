@@ -219,7 +219,6 @@ export function rowToMaintenance(row: Record<string, unknown>): MaintenanceItem 
     intervalDays: interval === null || interval === undefined ? undefined : Number(interval),
     priority: (row.priority as MaintenanceItem["priority"]) ?? "medium",
     photoUris,
-    archived: Boolean(row.archived),
   };
 }
 
@@ -248,10 +247,6 @@ export function maintenanceToRow(userId: string, m: MaintenanceItem): Record<str
 
   if (m.photoUris !== undefined) {
     row.photo_urls = m.photoUris.filter((u) => Boolean(String(u ?? "").trim()));
-  }
-
-  if (m.archived !== undefined) {
-    row.archived = Boolean(m.archived);
   }
 
   return row;

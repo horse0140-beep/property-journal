@@ -33,7 +33,7 @@ export const HOW_TO_TOPICS: HelpTopic[] = [
     id: "mark-complete",
     title: "Mark a task complete",
     body:
-      "Open the task, tap Mark Complete, then choose what happens next: move it to Completed history, schedule it again, or archive it. You can add a completion date, notes, and photos.",
+      "Open the task, tap Mark Complete, then choose Delete, Reschedule, or Archive. You can add a completion date, notes, and photos.",
   },
   {
     id: "next-due",
@@ -102,13 +102,13 @@ export const FAQ_ITEMS: FaqItem[] = [
     id: "completed-move",
     question: "Why did my task move to Completed?",
     answer:
-      "When you choose “Move to Completed History” (or archive), the task leaves Upcoming and Overdue and appears under Completed. It is not deleted unless you tap Delete.",
+      "When you choose Archive, the task is marked Completed and leaves Upcoming and Overdue. It appears under Completed / Past Tasks. Delete removes it permanently. Reschedule keeps it active with a new due date.",
   },
   {
     id: "recurring",
     question: "How do recurring tasks work?",
     answer:
-      "If you complete a task and choose “Complete and schedule again,” you pick the next due timing. The same task stays on your list with a new due date instead of sitting in Completed.",
+      "If you complete a task and choose Reschedule, you pick the next due timing. The same task stays on your list with a new due date instead of sitting in Completed.",
   },
   {
     id: "change-due",

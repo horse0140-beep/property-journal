@@ -31,8 +31,6 @@ export type MaintenanceItem = {
   priority: "low" | "medium" | "high";
   /** Stored maintenance photo URLs (maintenance_items.photo_urls). */
   photoUris?: string[];
-  /** Complete-and-archive; hidden from Upcoming/Overdue when true. */
-  archived?: boolean;
 };
 
 export type Repair = {

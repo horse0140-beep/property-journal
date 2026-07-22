@@ -66,7 +66,7 @@ export function MaintenanceDetailModal({
   if (!item) return null;
 
   const notes = String(item.notes ?? "").trim();
-  const canComplete = !item.archived && item.status !== "Completed";
+  const canComplete = item.status !== "Completed";
   const photos = item.photoUris ?? [];
 
   async function handleDelete() {
@@ -88,10 +88,7 @@ export function MaintenanceDetailModal({
       </View>
 
       <DetailRow label="Category" value={item.category} />
-      <DetailRow
-        label="Status"
-        value={item.archived ? "Archived" : item.status}
-      />
+      <DetailRow label="Status" value={item.status} />
       <DetailRow label="Priority" value={formatPriority(item.priority)} />
       <DetailRow label="Next Due" value={item.nextDue || "—"} />
       <View style={{ marginBottom: 12 }}>
@@ -135,7 +132,7 @@ export function MaintenanceDetailModal({
         <Text style={styles.primaryButtonText}>Edit</Text>
       </Pressable>
 
-      {canComplete && !item.archived ? (
+      {canComplete ? (
         <Pressable
           style={[styles.secondaryButton, { marginTop: 10 }]}
           onPress={() => {

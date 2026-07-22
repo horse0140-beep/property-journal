@@ -50,7 +50,7 @@ function webPointer(pressed?: boolean) {
 }
 
 function isActiveTask(m: MaintenanceItem) {
-  return m.status !== "Completed" && !m.archived;
+  return m.status !== "Completed";
 }
 
 export default function MaintenanceScreen() {
@@ -99,7 +99,7 @@ export default function MaintenanceScreen() {
     (m) => isActiveTask(m) && (m.status === "Upcoming" || m.status === "Due Soon")
   );
   const overdue = propMaintenance.filter((m) => isActiveTask(m) && m.status === "Overdue");
-  const completed = propMaintenance.filter((m) => m.status === "Completed" || m.archived);
+  const completed = propMaintenance.filter((m) => m.status === "Completed");
 
   const counts: Record<MaintTab, number> = {
     upcoming: upcoming.length,
@@ -108,8 +108,7 @@ export default function MaintenanceScreen() {
     appliances: propAppliances.length,
     repairs: propRepairs.length,
     all:
-      propMaintenance.filter((m) => isActiveTask(m) || m.status === "Completed" || m.archived)
-        .length +
+      propMaintenance.length +
       propAppliances.length +
       propRepairs.length,
   };
@@ -182,7 +181,7 @@ export default function MaintenanceScreen() {
               </Text>
             </View>
             <View style={{ alignItems: "flex-end", gap: 6 }}>
-              <Text style={statusBadge(item.status)}>{item.archived ? "Archived" : item.status}</Text>
+              <Text style={statusBadge(item.status)}>{item.status}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </View>
           </View>
@@ -316,17 +315,14 @@ export default function MaintenanceScreen() {
     return (
       <View>
         <Text style={[styles.sectionHeader, { marginBottom: 8 }]}>Tasks</Text>
-        {propMaintenance.filter((m) => isActiveTask(m) || m.status === "Completed" || m.archived)
-          .length === 0
+        {propMaintenance.length === 0
           ? renderEmpty(
               "No tasks yet",
               "Add your first maintenance task.",
               "Add Task",
               () => openAdd("maintenance")
             )
-          : propMaintenance
-              .filter((m) => isActiveTask(m) || m.status === "Completed" || m.archived)
-              .map(renderTaskCard)}
+          : propMaintenance.map(renderTaskCard)}
         <Text style={[styles.sectionHeader, { marginTop: 16, marginBottom: 8 }]}>Appliances</Text>
         {propAppliances.length === 0 ? (
           <Text style={{ color: colors.textMuted, fontStyle: "italic", marginBottom: 8 }}>

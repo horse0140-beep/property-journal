@@ -631,7 +631,6 @@ export default function PropertyDetailContent({
             photoUris: mPhotoUris,
             intervalDays,
             recurring: true,
-            archived: false,
           });
           saved = { id: editingId, title: mTitle };
         } else {
@@ -647,7 +646,6 @@ export default function PropertyDetailContent({
             intervalDays,
             priority: mPriority,
             photoUris: mPhotoUris,
-            archived: false,
           });
         }
       } else if (activeModal === "repair") {
@@ -1086,10 +1084,10 @@ export default function PropertyDetailContent({
 
   function renderMaintenance() {
     const upcomingTasks = maint.filter(
-      (m) => m.status !== "Completed" && !m.archived && (m.status === "Upcoming" || m.status === "Due Soon")
+      (m) => m.status !== "Completed" && (m.status === "Upcoming" || m.status === "Due Soon")
     );
-    const overdueTasks = maint.filter((m) => m.status === "Overdue" && !m.archived);
-    const completedTasks = maint.filter((m) => m.status === "Completed" || m.archived);
+    const overdueTasks = maint.filter((m) => m.status === "Overdue");
+    const completedTasks = maint.filter((m) => m.status === "Completed");
     const filteredTasks =
       taskFilter === "upcoming"
         ? upcomingTasks
@@ -1097,7 +1095,7 @@ export default function PropertyDetailContent({
           ? overdueTasks
           : taskFilter === "completed"
             ? completedTasks
-            : maint.filter((m) => m.status !== "Completed" && !m.archived);
+            : maint.filter((m) => m.status !== "Completed");
 
     return (
       <>
@@ -1207,9 +1205,7 @@ export default function PropertyDetailContent({
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 6 }}>
-                      <Text style={statusBadge(item.status)}>
-                        {item.archived ? "Archived" : item.status}
-                      </Text>
+                      <Text style={statusBadge(item.status)}>{item.status}</Text>
                       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </View>
                   </View>
@@ -1222,7 +1218,7 @@ export default function PropertyDetailContent({
                     >
                       <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Edit</Text>
                     </Pressable>
-                    {!item.archived && item.status !== "Completed" ? (
+                    {item.status !== "Completed" ? (
                       <Pressable
                         onPress={() => {
                           setCompleteTarget(item);
@@ -1257,7 +1253,7 @@ export default function PropertyDetailContent({
                       ["upcoming", "Upcoming", upcomingTasks.length],
                       ["overdue", "Overdue", overdueTasks.length],
                       ["completed", "Completed", completedTasks.length],
-                      ["active", "All active", maint.filter((m) => m.status !== "Completed" && !m.archived).length],
+                      ["active", "All active", maint.filter((m) => m.status !== "Completed").length],
                     ] as const
                   ).map(([id, label, count]) => (
                     <Pressable
@@ -2081,14 +2077,17 @@ export default function PropertyDetailContent({
             nextDue: payload.nextDue,
             intervalDays: payload.intervalDays,
           });
-          notifyUser(
-            "Task marked complete",
-            payload.outcome === "reschedule" && payload.nextDue
-              ? `Next due ${payload.nextDue}`
-              : payload.outcome === "archive"
-                ? "Moved to archive"
-                : "Moved to Completed"
-          );
+          if (payload.outcome === "delete") {
+            notifyUser("Task completed and deleted");
+            setViewMaintenance(null);
+          } else if (payload.outcome === "reschedule") {
+            notifyUser(
+              "Task completed and rescheduled",
+              payload.nextDue ? `Next due ${payload.nextDue}` : undefined
+            );
+          } else {
+            notifyUser("Task moved to Past Tasks");
+          }
         }}
       />
     </Screen>

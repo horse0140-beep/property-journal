@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -13,12 +13,13 @@ import { KeyboardModal } from "@/components/KeyboardModal";
 import { RelativeDueDateField } from "@/components/RelativeDueDateField";
 import { colors, styles } from "@/constants/theme";
 import type { MaintenanceItem } from "@/data/demoData";
+import type { CompleteMaintenanceOutcome } from "@/lib/maintenanceComplete";
 import { todayIsoDate } from "@/lib/dateForDatabase";
 import { takePhoto, pickImageFromLibrary } from "@/lib/fileUtils";
 import { notifyUser } from "@/lib/userFeedback";
 import { RepairPhotoStrip } from "@/components/RepairPhotoStrip";
 
-export type CompleteMaintenanceOutcome = "history" | "reschedule" | "archive";
+export type { CompleteMaintenanceOutcome };
 
 export type TaskCompletionPayload = {
   completedAt: string;
@@ -38,27 +39,38 @@ type Props = {
 
 const OUTCOMES: { id: CompleteMaintenanceOutcome; title: string; hint: string }[] = [
   {
-    id: "history",
-    title: "Move to Completed History",
-    hint: "Keeps the task in Completed / Past Tasks. Does not delete it.",
+    id: "delete",
+    title: "Delete",
+    hint: "Permanently remove this task after recording completion.",
   },
   {
     id: "reschedule",
-    title: "Complete and schedule again",
-    hint: "Sets a new due date and keeps the task active.",
+    title: "Reschedule",
+    hint: "Mark this occurrence complete and choose the next due date.",
   },
   {
     id: "archive",
-    title: "Complete and archive",
-    hint: "Marks it completed and hides it from Upcoming and Overdue.",
+    title: "Archive",
+    hint: "Keep the completed task in Past Tasks and remove it from active lists.",
   },
 ];
+
+function actionLabel(outcome: CompleteMaintenanceOutcome, saving: boolean): string {
+  if (saving) {
+    if (outcome === "delete") return "Deleting…";
+    if (outcome === "reschedule") return "Rescheduling…";
+    return "Archiving…";
+  }
+  if (outcome === "delete") return "Complete & Delete";
+  if (outcome === "reschedule") return "Complete & Reschedule";
+  return "Complete & Archive";
+}
 
 export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props) {
   const [completedAt, setCompletedAt] = useState(todayIsoDate());
   const [notes, setNotes] = useState("");
   const [photoUris, setPhotoUris] = useState<string[]>([]);
-  const [outcome, setOutcome] = useState<CompleteMaintenanceOutcome>("history");
+  const [outcome, setOutcome] = useState<CompleteMaintenanceOutcome>("archive");
   const [nextDue, setNextDue] = useState("");
   const [intervalDays, setIntervalDays] = useState<number | undefined>();
   const [saving, setSaving] = useState(false);
@@ -70,12 +82,18 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
     setCompletedAt(todayIsoDate());
     setNotes("");
     setPhotoUris([...(item.photoUris ?? [])]);
-    setOutcome(item.recurring ? "reschedule" : "history");
+    setOutcome(item.recurring ? "reschedule" : "archive");
     setNextDue("");
     setIntervalDays(item.intervalDays);
     setSaving(false);
     savingRef.current = false;
   }, [visible, item?.id]);
+
+  const canSubmit = useMemo(() => {
+    if (!completedAt.trim()) return false;
+    if (outcome === "reschedule" && !nextDue.trim()) return false;
+    return true;
+  }, [completedAt, outcome, nextDue]);
 
   if (!item) return null;
 
@@ -103,7 +121,7 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
   }
 
   async function handleSubmit() {
-    if (savingRef.current || saving) return;
+    if (savingRef.current || saving || !canSubmit) return;
     if (!completedAt) {
       notifyUser("Required", "Choose a completion date.");
       return;
@@ -135,6 +153,8 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
       setSaving(false);
     }
   }
+
+  const primaryDisabled = saving || !canSubmit;
 
   return (
     <KeyboardModal visible={visible} onRequestClose={() => !saving && onClose()}>
@@ -203,9 +223,10 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
         return (
           <Pressable
             key={o.id}
-            onPress={() => setOutcome(o.id)}
+            onPress={() => !saving && setOutcome(o.id)}
+            disabled={saving}
             style={{
-              borderWidth: 1,
+              borderWidth: selected ? 2 : 1,
               borderColor: selected ? colors.primary : colors.border,
               backgroundColor: selected ? colors.bgSection : colors.bgCard,
               borderRadius: 12,
@@ -213,7 +234,12 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
               marginBottom: 8,
             }}
           >
-            <Text style={{ color: colors.textPrimary, fontWeight: "800" }}>{o.title}</Text>
+            <View style={styles.rowBetween}>
+              <Text style={{ color: colors.textPrimary, fontWeight: "800" }}>{o.title}</Text>
+              {selected ? (
+                <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
+              ) : null}
+            </View>
             <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>{o.hint}</Text>
           </Pressable>
         );
@@ -232,24 +258,26 @@ export function TaskCompletionModal({ visible, item, onClose, onSubmit }: Props)
         />
       ) : null}
 
-      {outcome === "history" || outcome === "archive" ? (
+      {outcome === "archive" ? (
         <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: 8 }}>
-          Completed on {formatPickerDateDisplay(completedAt) || completedAt}. The task is not deleted.
+          Completed on {formatPickerDateDisplay(completedAt) || completedAt}. Kept in Past Tasks.
+        </Text>
+      ) : null}
+      {outcome === "delete" ? (
+        <Text style={{ color: colors.danger, fontSize: 12, marginBottom: 8 }}>
+          This permanently deletes the task after saving completion details.
         </Text>
       ) : null}
 
       <Pressable
-        style={[styles.primaryButton, saving && { opacity: 0.6 }]}
-        disabled={saving}
+        style={[styles.primaryButton, primaryDisabled && { opacity: 0.55 }]}
+        disabled={primaryDisabled}
         onPress={() => {
           void handleSubmit();
         }}
       >
-        {saving ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryButtonText}>Save completion</Text>
-        )}
+        {saving ? <ActivityIndicator color="#fff" style={{ marginRight: 8 }} /> : null}
+        <Text style={styles.primaryButtonText}>{actionLabel(outcome, saving)}</Text>
       </Pressable>
 
       <Pressable style={styles.ghostButton} onPress={onClose} disabled={saving}>

@@ -652,25 +652,19 @@ export function HomeWiseProvider({
         }
 
         const previous = { ...item };
-        const outcome = options?.outcome ?? (item.recurring ? "reschedule" : "history");
+        const outcome = options?.outcome ?? (item.recurring ? "reschedule" : "archive");
         const lastCompleted = options?.completedAt?.trim() || todayIsoDate();
 
         let nextDue = item.nextDue ?? "";
         let status: MaintenanceItem["status"] = "Completed";
         let recurring = item.recurring;
         let intervalDays = item.intervalDays;
-        let archived = false;
 
-        if (outcome === "history") {
+        if (outcome === "archive" || outcome === "delete") {
+          // Past Tasks uses status "Completed" — live DB has no archived column.
           status = "Completed";
           recurring = false;
-          archived = false;
-        } else if (outcome === "archive") {
-          status = "Completed";
-          recurring = false;
-          archived = true;
         } else {
-          // reschedule
           nextDue = options?.nextDue?.trim() || "";
           if (!nextDue) {
             const interval = item.intervalDays && item.intervalDays > 0 ? item.intervalDays : 30;
@@ -680,7 +674,6 @@ export function HomeWiseProvider({
             intervalDays = options.intervalDays;
           }
           recurring = true;
-          archived = false;
           status = statusFromNextDue(nextDue);
         }
 
@@ -703,26 +696,33 @@ export function HomeWiseProvider({
           status,
           recurring,
           intervalDays,
-          archived,
           notes,
           photoUris,
         };
 
-        setState((s) => ({
-          ...s,
-          maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-        }));
+        if (outcome === "delete") {
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.filter((m) => m.id !== id),
+          }));
+        } else {
+          setState((s) => ({
+            ...s,
+            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+          }));
+        }
         if (item.propertyId) bumpScore(item.propertyId);
 
         try {
           if (!isSignedIn) {
+            if (outcome === "delete") return null;
             return { ...item, ...updates } as MaintenanceItem;
           }
 
           await assertOnlineForWrite();
           const userId = await requireAuthUserId();
 
-          let payload = { ...updates };
+          let payload: Partial<MaintenanceItem> = { ...updates };
           if (photoUris?.length) {
             const bucket = getPhotoBucket("property");
             const uploaded: string[] = [];
@@ -753,6 +753,17 @@ export function HomeWiseProvider({
 
           const saved = await maintenanceService.updateMaintenanceItem(userId, id, payload);
 
+          if (outcome === "delete") {
+            await maintenanceService.deleteMaintenanceItem(userId, id);
+            for (const url of payload.photoUris ?? item.photoUris ?? []) {
+              if (url && isRemoteUri(url)) {
+                await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
+              }
+            }
+            void refreshData().catch(() => undefined);
+            return null;
+          }
+
           setState((s) => ({
             ...s,
             maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? saved : m)),
@@ -761,10 +772,16 @@ export function HomeWiseProvider({
           void refreshData().catch(() => undefined);
           return saved;
         } catch (e) {
-          setState((s) => ({
-            ...s,
-            maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
-          }));
+          setState((s) => {
+            const exists = s.maintenanceItems.some((m) => m.id === id);
+            if (!exists) {
+              return { ...s, maintenanceItems: [previous, ...s.maintenanceItems] };
+            }
+            return {
+              ...s,
+              maintenanceItems: s.maintenanceItems.map((m) => (m.id === id ? previous : m)),
+            };
+          });
           throw e;
         } finally {
           completingMaintenanceRef.current = false;

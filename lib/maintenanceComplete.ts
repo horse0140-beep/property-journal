@@ -1,6 +1,4 @@
-import type { CompleteMaintenanceOutcome } from "@/components/TaskCompletionModal";
-
-export type { CompleteMaintenanceOutcome };
+export type CompleteMaintenanceOutcome = "delete" | "reschedule" | "archive";
 
 export type CompleteMaintenanceOptions = {
   completedAt: string;
