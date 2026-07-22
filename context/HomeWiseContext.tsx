@@ -125,7 +125,7 @@ type AppContextValue = AppState & {
   deleteContractor: (id: string) => void;
   addPhoto: (p: Omit<PhotoItem, "id"> & { photoType?: string }) => Promise<PhotoItem>;
   updatePhoto: (id: string, updates: { caption?: string; category?: string }) => Promise<void>;
-  deletePhoto: (id: string) => void;
+  deletePhoto: (id: string) => Promise<void>;
   getPropertyScore: (propertyId: string) => PropertyScore;
   resetDemoData: () => void;
 };
@@ -1327,17 +1327,27 @@ export function HomeWiseProvider({
         }
       },
 
-      deletePhoto: (id) => {
+      deletePhoto: async (id) => {
+        const previous = stateRef.current.photos.find((p) => p.id === id);
         setState((s) => ({ ...s, photos: s.photos.filter((p) => p.id !== id) }));
-        if (isSignedIn) {
-          void photoService
-            .deletePhoto(id)
-            .then((result) => {
-              if (result.storageWarning) {
-                syncError("Photo deleted — storage cleanup warning", new Error(result.storageWarning));
-              }
-            })
-            .catch((e) => syncError("Delete photo", e));
+        if (!isSignedIn) return;
+        try {
+          const result = await photoService.deletePhoto(id);
+          if (result.storageWarning) {
+            throw new Error(
+              `Photo removed from your records, but file cleanup failed: ${result.storageWarning}`
+            );
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Restore only when the DB delete failed (not when storage cleanup warned after success).
+          if (previous && !msg.includes("file cleanup failed")) {
+            setState((s) => ({
+              ...s,
+              photos: [previous, ...s.photos.filter((p) => p.id !== previous.id)],
+            }));
+          }
+          throw e instanceof Error ? e : new Error(msg);
         }
       },
 

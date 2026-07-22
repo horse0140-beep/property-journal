@@ -113,6 +113,8 @@ export default function HomeScreen() {
     isLoading,
     loadError,
     refreshData,
+    updatePhoto,
+    deletePhoto,
   } = useHomeWise();
   const { user, isAdmin, isOwner } = useAuth();
   const { requireFeature } = useUpgrade();
@@ -954,7 +956,18 @@ export default function HomeScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 10 }}>
                 {propPhotos.slice(0, 8).map((p) => (
-                  <PhotoCard key={p.id} photo={p} size={90} />
+                  <PhotoCard
+                    key={p.id}
+                    photo={p}
+                    size={90}
+                    onUpdatePhoto={async (id, updates) => {
+                      await updatePhoto(id, updates);
+                      await refreshData().catch(() => undefined);
+                    }}
+                    onDelete={async () => {
+                      await deletePhoto(p.id);
+                    }}
+                  />
                 ))}
                 <Pressable
                   onPress={() => router.push(`/properties/${propertyId}?section=photos`)}

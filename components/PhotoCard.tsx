@@ -22,12 +22,14 @@ import {
 import { auditPipelineStep } from "@/lib/photoUploadAudit";
 import { PHOTO_CATEGORIES } from "@/components/property/propertyDetailConstants";
 import type { PhotoItem } from "@/data/demoData";
-import { notifyUser } from "@/lib/userFeedback";
+import { notifyUser, confirmDestructive } from "@/lib/userFeedback";
+import { formatDateForDisplay } from "@/lib/dateForDatabase";
 
 type PhotoCardProps = {
   photo: PhotoItem | Record<string, unknown>;
   size: number;
-  onDelete?: () => void;
+  /** Delete the photo record (and storage). Confirmation is handled inside PhotoCard. */
+  onDelete?: () => void | Promise<void>;
   onUpdatePhoto?: (id: string, updates: { caption: string; category: string }) => Promise<void>;
   style?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
@@ -55,11 +57,16 @@ export function PhotoCard({
   const [saving, setSaving] = useState(false);
   const [editCaption, setEditCaption] = useState("");
   const [editCategory, setEditCategory] = useState("Exterior");
+  const [deleting, setDeleting] = useState(false);
 
   const record = photo as Record<string, unknown>;
   const photoId = String(record.id ?? "");
   const caption = String(record.caption ?? "").trim();
   const category = String(record.category ?? "").trim();
+  const uploadedDate = String(record.date ?? record.created_at ?? record.createdAt ?? "").trim();
+  const uploadedDisplay = uploadedDate
+    ? formatDateForDisplay(uploadedDate) || uploadedDate
+    : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -120,11 +127,33 @@ export function PhotoCard({
         category: editCategory,
       });
       setEditing(false);
-      closeViewer();
+      notifyUser("Photo updated", "Category and description saved.");
     } catch (e) {
       notifyUser("Save Failed", e instanceof Error ? e.message : "Could not save photo details.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!onDelete || deleting) return;
+    const ok = await confirmDestructive("Delete Photo", "Remove this photo from the property?");
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await onDelete();
+      closeViewer();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not delete this photo.";
+      // DB already deleted — keep viewer closed and warn about storage cleanup.
+      if (/cleanup failed|removed from your records/i.test(msg)) {
+        closeViewer();
+        notifyUser("Photo deleted", msg);
+      } else {
+        notifyUser("Delete Failed", msg);
+      }
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -238,7 +267,11 @@ export function PhotoCard({
 
             <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
               {onUpdatePhoto && !editing ? (
-                <Pressable onPress={startEdit} style={{ paddingVertical: 8, paddingHorizontal: 4 }}>
+                <Pressable
+                  onPress={startEdit}
+                  disabled={deleting}
+                  style={{ paddingVertical: 8, paddingHorizontal: 4 }}
+                >
                   <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Edit</Text>
                 </Pressable>
               ) : null}
@@ -246,19 +279,26 @@ export function PhotoCard({
               {onDelete && !editing ? (
                 <Pressable
                   onPress={() => {
-                    closeViewer();
-                    onDelete();
+                    void handleDelete();
                   }}
+                  disabled={deleting}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
                     gap: 6,
                     paddingVertical: 8,
                     paddingHorizontal: 4,
+                    opacity: deleting ? 0.6 : 1,
                   }}
                 >
-                  <Ionicons name="trash-outline" size={20} color={colors.danger} />
-                  <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 16 }}>Delete</Text>
+                  {deleting ? (
+                    <ActivityIndicator color={colors.danger} />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                      <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 16 }}>Delete</Text>
+                    </>
+                  )}
                 </Pressable>
               ) : null}
             </View>
@@ -330,20 +370,32 @@ export function PhotoCard({
                 )}
               </View>
 
-              {caption || category ? (
-                <View style={{ marginTop: 12 }}>
-                  {caption ? (
-                    <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", textAlign: "center" }}>
-                      {caption}
-                    </Text>
-                  ) : null}
-                  {category ? (
-                    <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 4, textAlign: "center" }}>
-                      {category}
-                    </Text>
-                  ) : null}
+              <View style={{ marginTop: 12, gap: 8 }}>
+                <View>
+                  <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, fontWeight: "700" }}>
+                    CATEGORY
+                  </Text>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2 }}>
+                    {category || "Not set"}
+                  </Text>
                 </View>
-              ) : null}
+                <View>
+                  <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, fontWeight: "700" }}>
+                    DESCRIPTION
+                  </Text>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 2 }}>
+                    {caption || "No description"}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, fontWeight: "700" }}>
+                    UPLOADED
+                  </Text>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 2 }}>
+                    {uploadedDisplay || "—"}
+                  </Text>
+                </View>
+              </View>
             </>
           )}
         </View>

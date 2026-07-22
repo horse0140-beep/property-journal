@@ -1411,8 +1411,7 @@ export default function PropertyDetailContent({
                       await refreshData().catch(() => {});
                     }}
                     onDelete={async () => {
-                      const ok = await confirmDestructive("Delete", "Remove this photo?");
-                      if (ok) deletePhoto(ph.id);
+                      await deletePhoto(ph.id);
                     }}
                   />
                 ))}
