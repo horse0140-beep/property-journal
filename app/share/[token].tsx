@@ -13,6 +13,7 @@ import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { colors, styles } from "@/constants/theme";
 import { fetchPropertyShareByToken } from "@/services/sharingService";
+import { shareAudit, shareAuditFailure } from "@/lib/shareAudit";
 import type { PropertyShare } from "@/types/premium";
 
 type Snapshot = {
@@ -39,12 +40,19 @@ export default function SharedPropertyScreen() {
     if (Platform.OS === "web" && typeof document !== "undefined") {
       document.title = "Property Journal · Shared Property";
     }
-  }, []);
+    shareAudit("13", {
+      action: "public route mounted",
+      route: "app/share/[token].tsx",
+      token: token ?? null,
+      href: Platform.OS === "web" && typeof window !== "undefined" ? window.location.href : null,
+    });
+  }, [token]);
 
   useEffect(() => {
     if (!token) {
       setInvalid(true);
       setLoading(false);
+      shareAudit("13", { action: "missing token param" });
       return;
     }
     let cancelled = false;
@@ -52,8 +60,22 @@ export default function SharedPropertyScreen() {
     fetchPropertyShareByToken(token)
       .then((result) => {
         if (cancelled) return;
-        if (!result) setInvalid(true);
-        else setShare(result);
+        if (!result) {
+          setInvalid(true);
+          shareAudit("16", { rendered: false, reason: "invalid_or_expired" });
+        } else {
+          setShare(result);
+          shareAudit("16", {
+            rendered: true,
+            shareRecordId: result.id,
+            propertyLabelPresent: Boolean(result.property_label),
+          });
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setInvalid(true);
+        shareAuditFailure("16 property data render", e);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

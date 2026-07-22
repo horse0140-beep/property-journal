@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { shareAudit } from "@/lib/shareAudit";
 
 /** Shown in preview/dev when EXPO_PUBLIC_SHARE_BASE_URL is not set. */
 export const SHARE_NOT_CONFIGURED_MESSAGE = "Sharing is not configured yet";
@@ -18,15 +19,14 @@ function normalizeBaseUrl(raw: string): string {
 
 /**
  * Site origin for public share links.
- * Expected: https://property-journal.vercel.app
- * Legacy values ending in /share are accepted and normalized.
+ * Required: https://property-journal.vercel.app
+ * Legacy values ending in /share are accepted and normalized (never /share/share).
  */
 export function getShareBaseUrl(): string | null {
-  const raw = process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim();
+  const raw = process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim() ?? "";
   if (!raw) return null;
 
   let base = normalizeBaseUrl(raw);
-  // Legacy env included /share — strip so we never emit /share/share/<token>.
   if (/\/share$/i.test(base)) {
     base = base.replace(/\/share$/i, "");
   }
@@ -35,6 +35,7 @@ export function getShareBaseUrl(): string | null {
     const { hostname, protocol } = new URL(base);
     if (protocol !== "https:" && protocol !== "http:") return null;
     if (BLOCKED_PLACEHOLDER_HOSTS.has(hostname)) return null;
+    if (hostname === "localhost" || hostname.endsWith(".localhost")) return null;
   } catch {
     return null;
   }
@@ -47,17 +48,55 @@ export function isShareConfigured(): boolean {
 }
 
 /**
- * Public HTTPS link: {EXPO_PUBLIC_SHARE_BASE_URL}/share/<token>
- * Example: https://property-journal.vercel.app/share/HW-XXXX
+ * Single shared URL builder for Share and Open Link.
+ * Final form: {origin}/share/{token}
  */
-export function buildShareUrl(token: string): string | null {
+export function buildShareUrl(token: string, opts?: { audit?: boolean }): string | null {
+  const audit = opts?.audit === true;
+  const envRaw = process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim() ?? "";
   const base = getShareBaseUrl();
-  if (!base) return null;
+  if (audit) {
+    shareAudit("07", { environmentBaseUrl: envRaw || "(unset)" });
+    shareAudit("08", { normalizedBaseUrl: base });
+  }
 
-  const clean = token.trim();
-  if (!clean) return null;
+  if (!base) {
+    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "base_not_configured" });
+    return null;
+  }
 
-  return `${base}/share/${encodeURIComponent(clean)}`;
+  if (token === undefined || token === null) {
+    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "token_undefined" });
+    return null;
+  }
+
+  const clean = String(token).trim();
+  if (!clean) {
+    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "token_empty" });
+    return null;
+  }
+
+  const url = `${base}/share/${encodeURIComponent(clean)}`;
+
+  // Guardrails against known bad patterns
+  if (url.includes("/share/share/")) {
+    if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "double_share_rejected" });
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "share" || !parts[1] || parts.length !== 2) {
+      if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "path_shape_rejected" });
+      return null;
+    }
+  } catch {
+    if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "url_parse_failed" });
+    return null;
+  }
+
+  if (audit) shareAudit("09", { finalGeneratedUrl: url, token: clean });
+  return url;
 }
 
 /** Native deep link — opens the in-app share screen when the app is installed. */
@@ -104,9 +143,10 @@ export function extractShareTokenFromUrl(url: string): string | null {
 
 /** Log share URL config once in dev / preview builds. */
 export function logShareUrlConfig(): void {
-  if (!__DEV__) return;
   const base = getShareBaseUrl();
-  console.info(
-    `[share] EXPO_PUBLIC_SHARE_BASE_URL=${base ?? "(not configured)"} · appOwnership=${Constants.appOwnership}`
-  );
+  shareAudit("config", {
+    environmentBaseUrl: process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim() || "(unset)",
+    normalizedBaseUrl: base,
+    appOwnership: Constants.appOwnership ?? null,
+  });
 }

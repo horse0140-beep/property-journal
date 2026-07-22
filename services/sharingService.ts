@@ -1,7 +1,8 @@
-import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import { assertNoError, logTechnicalError } from "@/lib/userErrors";
+import { shareAudit, shareAuditFailure, maskToken } from "@/lib/shareAudit";
 import type { PropertyShare } from "@/types/premium";
+import * as Crypto from "expo-crypto";
 
 function generateToken(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -40,19 +41,52 @@ export async function fetchPropertyShareByToken(token: string): Promise<Property
   const trimmed = token?.trim();
   if (!trimmed) return null;
 
+  shareAudit("14", { action: "RPC request started", token: trimmed, rpc: "get_share_by_token", param: "p_token" });
+
   const { data, error } = await supabase.rpc("get_share_by_token", { p_token: trimmed });
 
   if (error) {
+    shareAuditFailure("15 RPC response", error, {
+      token: trimmed,
+      rpc: "get_share_by_token",
+    });
     logTechnicalError("fetchPropertyShareByToken", error);
     return null;
   }
 
-  if (!data) return null;
+  if (!data) {
+    shareAudit("15", {
+      rpcResult: "null",
+      token: trimmed,
+      meaning: "inactive_expired_or_missing",
+    });
+    return null;
+  }
 
   // PostgREST may return jsonb as an object or (rarely) a JSON string.
   const row = (typeof data === "string" ? JSON.parse(data) : data) as PropertyShare | null;
-  if (!row || typeof row !== "object") return null;
-  if (!row.share_token || row.is_active === false) return null;
+  if (!row || typeof row !== "object") {
+    shareAudit("15", { rpcResult: "invalid_shape", token: trimmed });
+    return null;
+  }
+  if (!row.share_token || row.is_active === false) {
+    shareAudit("15", {
+      rpcResult: "inactive_or_missing_token_field",
+      token: trimmed,
+      isActive: row.is_active ?? null,
+    });
+    return null;
+  }
+
+  shareAudit("15", {
+    rpcResult: "ok",
+    token: row.share_token,
+    shareRecordId: row.id,
+    isActive: row.is_active,
+    expirationValue: row.expires_at ?? null,
+    propertyLabelPresent: Boolean(row.property_label),
+    maskedToken: maskToken(row.share_token),
+  });
   return row;
 }
 

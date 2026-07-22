@@ -24,6 +24,7 @@ import {
   updatePropertyShare,
 } from "@/services/sharingService";
 import { buildShareUrl, logShareUrlConfig } from "@/lib/shareUrl";
+import { shareAudit } from "@/lib/shareAudit";
 import { notifyUser, openShareLink, sharePropertyLink } from "@/lib/webShare";
 import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
@@ -137,6 +138,13 @@ export default function PropertySharingScreen() {
   async function shareLink(share: PropertyShare) {
     if (busyKey) return;
     const key = `share:${share.share_token}`;
+    shareAudit("01", { action: "Share button pressed" });
+    shareAudit("02", { shareRecordId: share.id });
+    shareAudit("03", { token: share.share_token });
+    shareAudit("04", { tokenLength: share.share_token?.trim().length ?? 0 });
+    shareAudit("05", { activeStatus: share.is_active });
+    shareAudit("06", { expirationValue: share.expires_at ?? null });
+
     setBusyKey(key);
     setShareFeedback(null);
     let result: Awaited<ReturnType<typeof sharePropertyLink>> | null = null;
@@ -156,13 +164,14 @@ export default function PropertySharingScreen() {
       notifyUser("Share link copied", result.url);
     } else {
       setShareFeedback(result.error);
-      notifyUser("Share failed", result.error);
+      notifyUser("Unable to share", result.error);
     }
   }
 
   async function openLink(share: PropertyShare) {
     if (busyKey) return;
     const key = `open:${share.share_token}`;
+    shareAudit("12", { action: "Open Link invoked", shareRecordId: share.id, token: share.share_token });
     setBusyKey(key);
     setShareFeedback(null);
     let result: Awaited<ReturnType<typeof openShareLink>> | null = null;
@@ -177,7 +186,7 @@ export default function PropertySharingScreen() {
       setShareFeedback(`Opened\n${result.url}`);
     } else {
       setShareFeedback(result.error);
-      notifyUser("Open failed", result.error);
+      notifyUser("Unable to open", result.error);
     }
   }
 
