@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import DateTimePicker, {
   type DateTimePickerEvent,
@@ -71,7 +71,8 @@ export type DatePickerFieldProps = {
 };
 
 /**
- * Native calendar date field only — no typed entry, no keyboard.
+ * Native calendar date field on iOS/Android.
+ * Web uses <input type="date"> (native DateTimePicker is not available).
  * Stores ISO YYYY-MM-DD; displays "Month Day, Year".
  */
 export function DatePickerField({
@@ -84,6 +85,7 @@ export function DatePickerField({
 }: DatePickerFieldProps) {
   const iso = toIsoDateValue(value);
   const [open, setOpen] = useState(false);
+  const webInputRef = useRef<HTMLInputElement | null>(null);
 
   function handleChange(event: DateTimePickerEvent, selected?: Date) {
     if (Platform.OS === "android") {
@@ -92,6 +94,93 @@ export function DatePickerField({
     }
     if (!selected) return;
     onChange(localDateToIso(selected));
+  }
+
+  function openWebPicker() {
+    const el = webInputRef.current;
+    if (!el) return;
+    try {
+      if (typeof el.showPicker === "function") {
+        el.showPicker();
+        return;
+      }
+    } catch {
+      // fall through to click()
+    }
+    el.click();
+  }
+
+  if (Platform.OS === "web") {
+    return (
+      <View style={{ marginBottom: 4 }}>
+        <Text style={styles.label}>
+          {label}
+          {required ? " *" : optional ? " (optional)" : ""}
+        </Text>
+        <Pressable
+          onPress={openWebPicker}
+          style={[
+            styles.input,
+            {
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingVertical: 12,
+              position: "relative",
+              overflow: "hidden",
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${label}${iso ? `: ${formatPickerDateDisplay(iso)}` : ""}`}
+        >
+          <Text
+            style={{
+              color: iso ? colors.textPrimary : colors.textMuted,
+              fontSize: 15,
+              fontWeight: iso ? "600" : "400",
+              flex: 1,
+            }}
+            pointerEvents="none"
+          >
+            {iso ? formatPickerDateDisplay(iso) : placeholder}
+          </Text>
+          <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+          {/* Hidden native date input — source of truth for web calendar */}
+          <input
+            ref={(node) => {
+              webInputRef.current = node;
+            }}
+            type="date"
+            value={iso ?? ""}
+            onChange={(e) => {
+              const next = toIsoDateValue(e.target.value);
+              if (next) onChange(next);
+            }}
+            aria-label={label}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0,
+              width: "100%",
+              height: "100%",
+              cursor: "pointer",
+              border: "none",
+            }}
+          />
+        </Pressable>
+
+        {optional && iso ? (
+          <Pressable
+            onPress={() => onChange("")}
+            style={{ alignSelf: "flex-start", marginTop: 6, paddingVertical: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Clear ${label}`}
+          >
+            <Text style={{ color: colors.danger, fontWeight: "700", fontSize: 13 }}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
   }
 
   return (

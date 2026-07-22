@@ -14,6 +14,7 @@ import { Card } from "@/components/Card";
 import { LoadingView } from "@/components/LoadingView";
 import { EmptyState } from "@/components/EmptyState";
 import { BackLink } from "@/components/EmptyState";
+import { goBackOrHome } from "@/components/WebHomeButton";
 import { colors, styles, hitSlopDefault } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -127,7 +128,7 @@ export default function NotificationCenterScreen() {
           />
         }
       >
-        <BackLink onPress={() => router.back()} />
+        <BackLink onPress={goBackOrHome} />
 
         <View
           style={{

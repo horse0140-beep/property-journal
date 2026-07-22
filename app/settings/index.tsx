@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Screen } from "@/components/Screen";
 import { colors, styles } from "@/constants/theme";
+import { WebHomeButton, goBackOrHome } from "@/components/WebHomeButton";
 import { useAuth } from "@/context/AuthContext";
 import { useOffline } from "@/context/OfflineContext";
 import {
@@ -257,7 +258,7 @@ export default function SettingsScreen() {
         }}
       >
         <Pressable
-          onPress={() => router.back()}
+          onPress={goBackOrHome}
           style={{
             width: 36,
             height: 36,
@@ -269,7 +270,8 @@ export default function SettingsScreen() {
         >
           <Ionicons name="chevron-back" size={20} color={colors.primary} />
         </Pressable>
-        <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "800" }}>
+        <WebHomeButton compact />
+        <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "800", flex: 1 }}>
           Settings
         </Text>
       </View>

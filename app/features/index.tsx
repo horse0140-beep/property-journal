@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { BackLink } from "@/components/EmptyState";
+import { goBackOrHome } from "@/components/WebHomeButton";
 import { Card } from "@/components/Card";
 import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -103,7 +104,7 @@ export default function PremiumFeaturesHub() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <BackLink onPress={() => router.back()} />
+        <BackLink onPress={goBackOrHome} />
 
         <View
           style={{

@@ -1,6 +1,7 @@
 import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, hitSlopDefault } from "@/constants/theme";
+import { WebHomeButton } from "@/components/WebHomeButton";
 
 type Props = {
   title: string;
@@ -20,10 +21,10 @@ export function Header({ title, subtitle, onBack, rightAction }: Props) {
         backgroundColor: colors.bgCard,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        gap: 12,
+        gap: 8,
       }}
     >
-      {onBack && (
+      {onBack ? (
         <Pressable
           onPress={onBack}
           hitSlop={hitSlopDefault}
@@ -40,7 +41,8 @@ export function Header({ title, subtitle, onBack, rightAction }: Props) {
         >
           <Ionicons name="chevron-back" size={20} color={colors.primary} />
         </Pressable>
-      )}
+      ) : null}
+      <WebHomeButton compact />
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: "800" }}>{title}</Text>
         {subtitle && (

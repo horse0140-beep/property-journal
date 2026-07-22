@@ -353,8 +353,26 @@ export async function verifyLocalFileExists(
 ): Promise<{ exists: boolean; size?: number; error?: string }> {
   if (Platform.OS === "web") {
     try {
+      // blob:/data: URLs often reject HEAD — use GET and measure bytes.
+      if (localUri.startsWith("blob:") || localUri.startsWith("data:")) {
+        const res = await fetch(localUri);
+        if (!res.ok) return { exists: false, error: `HTTP ${res.status}` };
+        const buf = await res.arrayBuffer();
+        return { exists: buf.byteLength > 0, size: buf.byteLength };
+      }
       const res = await fetch(localUri, { method: "HEAD" });
-      return { exists: res.ok, error: res.ok ? undefined : `HTTP ${res.status}` };
+      if (res.ok) {
+        const len = res.headers.get("content-length");
+        return {
+          exists: true,
+          size: len ? Number(len) : undefined,
+        };
+      }
+      // Fallback GET when HEAD unsupported
+      const get = await fetch(localUri);
+      if (!get.ok) return { exists: false, error: `HTTP ${get.status}` };
+      const buf = await get.arrayBuffer();
+      return { exists: buf.byteLength > 0, size: buf.byteLength };
     } catch (e) {
       return { exists: false, error: e instanceof Error ? e.message : String(e) };
     }

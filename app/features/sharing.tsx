@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ScrollView, Text, View, Pressable, Alert, ActivityIndicator,
-  RefreshControl, Share,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -16,7 +16,6 @@ import { colors, styles } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import {
-  buildShareMessage,
   createPropertyShare,
   fetchPropertyShares,
   isShareConfigured,
@@ -25,6 +24,7 @@ import {
   updatePropertyShare,
 } from "@/services/sharingService";
 import { logShareUrlConfig } from "@/lib/shareUrl";
+import { sharePropertyLink } from "@/lib/webShare";
 import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
 import type { PropertyShare } from "@/types/premium";
 
@@ -128,15 +128,11 @@ export default function PropertySharingScreen() {
   }
 
   async function shareLink(share: PropertyShare) {
-    const message = buildShareMessage(
-      share.share_token,
-      `View my Property Journal property history for ${share.property_label}.`
-    );
-    if (!message) {
-      Alert.alert("Sharing unavailable", SHARE_NOT_CONFIGURED_MESSAGE);
-      return;
-    }
-    await Share.share({ message, title: share.label });
+    await sharePropertyLink({
+      token: share.share_token,
+      label: share.label,
+      propertyLabel: share.property_label,
+    });
   }
 
   function confirmDelete(share: PropertyShare) {

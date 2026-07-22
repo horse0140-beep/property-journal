@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import { ContractorViewerModal } from "@/components/ContractorViewerModal";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { ScoreRing } from "@/components/ScoreRing";
+import { WebHomeButton, goBackOrHome } from "@/components/WebHomeButton";
 import { colors, styles } from "@/constants/theme";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import type { MaintenanceItem, Property } from "@/context/HomeWiseContext";
@@ -1153,9 +1155,10 @@ export default function PropertyDetailContent({
     <Screen noPad>
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 16, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={goBackOrHome} hitSlop={12} accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
           </Pressable>
+          <WebHomeButton compact />
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 18, fontWeight: "800", color: colors.textPrimary }} numberOfLines={1}>
               {property.nickname || property.address}
@@ -1492,12 +1495,29 @@ export default function PropertyDetailContent({
           <>
             {!pendingPhotoUri ? (
               <>
+                <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 12 }}>
+                  {Platform.OS === "web"
+                    ? "Choose a photo from your device, then tap Save Photo."
+                    : "Take a photo or choose from your library, then tap Save."}
+                </Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable onPress={() => attachPhoto(true)} disabled={picking} style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}>
-                    <Text style={styles.secondaryButtonText}>Camera</Text>
-                  </Pressable>
-                  <Pressable onPress={() => attachPhoto(false)} disabled={picking} style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}>
-                    <Text style={styles.primaryButtonText}>Library</Text>
+                  {Platform.OS !== "web" ? (
+                    <Pressable
+                      onPress={() => attachPhoto(true)}
+                      disabled={picking}
+                      style={[styles.secondaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Camera</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    onPress={() => attachPhoto(false)}
+                    disabled={picking}
+                    style={[styles.primaryButton, { flex: 1, marginTop: 0, opacity: picking ? 0.6 : 1 }]}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {Platform.OS === "web" ? "Choose Photo" : "Library"}
+                    </Text>
                   </Pressable>
                 </View>
                 {picking ? (
@@ -1571,7 +1591,7 @@ export default function PropertyDetailContent({
               {isSaving || photoSavePhase === "uploading" ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.primaryButtonText}>Save</Text>
+                <Text style={styles.primaryButtonText}>Save Photo</Text>
               )}
             </Pressable>
           )

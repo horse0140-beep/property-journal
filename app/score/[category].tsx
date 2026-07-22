@@ -1,9 +1,10 @@
 import { ScrollView, Text, View, Pressable } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { Screen } from "@/components/Screen";
 import { Header } from "@/components/Header";
 import { Card } from "@/components/Card";
 import { ScoreCategoryDetailView } from "@/components/ScoreCategoryDetailView";
+import { goBackOrHome } from "@/components/WebHomeButton";
 import { colors, styles } from "@/constants/theme";
 import { useHomeWise } from "@/context/HomeWiseContext";
 import {
@@ -50,7 +51,7 @@ export default function ScoreCategoryScreen() {
   if (!insight) {
     return (
       <Screen>
-        <Header title="Score Detail" onBack={() => router.back()} />
+        <Header title="Score Detail" onBack={goBackOrHome} />
         <Text style={styles.muted}>Category not found.</Text>
       </Screen>
     );
@@ -58,7 +59,7 @@ export default function ScoreCategoryScreen() {
 
   return (
     <Screen noPad>
-      <Header title={insight.label} subtitle={selectedProperty?.address} onBack={() => router.back()} />
+      <Header title={insight.label} subtitle={selectedProperty?.address} onBack={goBackOrHome} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Card elevated>
           <ScoreCategoryDetailView insight={insight} />
