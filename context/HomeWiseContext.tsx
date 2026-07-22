@@ -114,7 +114,7 @@ type AppContextValue = AppState & {
   deleteRepair: (id: string) => void;
   addAppliance: (a: Omit<Appliance, "id">) => Promise<Appliance>;
   updateAppliance: (id: string, a: Partial<Appliance>) => Promise<void>;
-  deleteAppliance: (id: string) => void;
+  deleteAppliance: (id: string) => Promise<void>;
   addDocument: (d: Omit<Document, "id">) => Promise<Document>;
   updateDocument: (id: string, d: Partial<Document>) => Promise<void>;
   deleteDocument: (id: string) => void;
@@ -948,28 +948,44 @@ export function HomeWiseProvider({
         }
       },
 
-      deleteAppliance: (id) => {
+      deleteAppliance: async (id) => {
         const appliance = state.appliances.find((a) => a.id === id);
-        const pid = appliance?.propertyId;
+        if (!appliance) return;
+        const pid = appliance.propertyId;
+        const previous = appliance;
+
         setState((s) => ({ ...s, appliances: s.appliances.filter((a) => a.id !== id) }));
         if (pid) bumpScore(pid);
-        if (isSignedIn && appliance) {
-          void requireAuthUserId()
-            .then(async (userId) => {
-              await applianceService.deleteAppliance(userId, id);
-              const urls =
-                appliance.photoUris?.length
-                  ? appliance.photoUris
-                  : appliance.photoUri
-                    ? [appliance.photoUri]
-                    : [];
-              for (const url of urls) {
-                if (url && isRemoteUri(url)) {
-                  await deleteFromStorage(getPhotoBucket("property"), url);
-                }
-              }
-            })
-            .catch((e) => syncError("Delete appliance", e));
+
+        if (!isSignedIn) return;
+
+        try {
+          await assertOnlineForWrite();
+          const userId = await requireAuthUserId();
+          await applianceService.deleteAppliance(userId, id);
+
+          const urls = [
+            ...(appliance.photoUris?.length
+              ? appliance.photoUris
+              : appliance.photoUri
+                ? [appliance.photoUri]
+                : []),
+            appliance.manualUri,
+            appliance.receiptUri,
+          ].filter((u): u is string => Boolean(u?.trim()));
+
+          for (const url of urls) {
+            if (isRemoteUri(url)) {
+              await deleteFromStorage(getPhotoBucket("property"), url).catch(() => undefined);
+            }
+          }
+        } catch (e) {
+          setState((s) => ({
+            ...s,
+            appliances: [previous, ...s.appliances.filter((a) => a.id !== previous.id)],
+          }));
+          if (pid) bumpScore(pid);
+          throw e;
         }
       },
 

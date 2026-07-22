@@ -17,15 +17,19 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 /**
- * Reads EXPO_PUBLIC_SHARE_BASE_URL.
- * Expected format: https://your-real-domain.com/share
- * Returns null when unset or pointing at an undeployed placeholder host.
+ * Site origin for public share links.
+ * Expected: https://property-journal.vercel.app
+ * Legacy values ending in /share are accepted and normalized.
  */
 export function getShareBaseUrl(): string | null {
   const raw = process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim();
   if (!raw) return null;
 
-  const base = normalizeBaseUrl(raw);
+  let base = normalizeBaseUrl(raw);
+  // Legacy env included /share — strip so we never emit /share/share/<token>.
+  if (/\/share$/i.test(base)) {
+    base = base.replace(/\/share$/i, "");
+  }
 
   try {
     const { hostname, protocol } = new URL(base);
@@ -43,8 +47,8 @@ export function isShareConfigured(): boolean {
 }
 
 /**
- * Public HTTPS link for recipients who may not have the app installed.
- * Returns null when sharing is not configured (never emits a broken homewise.app URL).
+ * Public HTTPS link: {EXPO_PUBLIC_SHARE_BASE_URL}/share/<token>
+ * Example: https://property-journal.vercel.app/share/HW-XXXX
  */
 export function buildShareUrl(token: string): string | null {
   const base = getShareBaseUrl();
@@ -53,7 +57,7 @@ export function buildShareUrl(token: string): string | null {
   const clean = token.trim();
   if (!clean) return null;
 
-  return `${base}/${encodeURIComponent(clean)}`;
+  return `${base}/share/${encodeURIComponent(clean)}`;
 }
 
 /** Native deep link — opens the in-app share screen when the app is installed. */

@@ -1152,39 +1152,51 @@ export default function PropertyDetailContent({
               const thumb =
                 a.photoUris?.find((u) => Boolean(u?.trim())) || a.photoUri?.trim() || "";
               return (
-              <Pressable key={a.id} onPress={() => openEditAppliance(a)}>
-              <Card style={{ marginBottom: 10 }}>
-                <View style={styles.rowBetween}>
-                  <View style={{ flexDirection: "row", flex: 1, gap: 10, alignItems: "center" }}>
-                    {thumb ? (
-                      <Image
-                        source={{ uri: thumb }}
-                        style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: colors.bgSection }}
-                        resizeMode="cover"
-                      />
-                    ) : null}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{a.name}</Text>
-                      <Text style={styles.muted}>{[a.brand, a.model].filter(Boolean).join(" · ")}</Text>
+              <Card key={a.id} style={{ marginBottom: 10 }}>
+                <Pressable onPress={() => openEditAppliance(a)}>
+                  <View style={styles.rowBetween}>
+                    <View style={{ flexDirection: "row", flex: 1, gap: 10, alignItems: "center" }}>
+                      {thumb ? (
+                        <Image
+                          source={{ uri: thumb }}
+                          style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: colors.bgSection }}
+                          resizeMode="cover"
+                        />
+                      ) : null}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cardTitle}>{a.name}</Text>
+                        <Text style={styles.muted}>{[a.brand, a.model].filter(Boolean).join(" · ")}</Text>
+                      </View>
                     </View>
+                    <Text style={{ color: conditionColor(a.condition), fontWeight: "700" }}>{a.condition}</Text>
                   </View>
-                  <Text style={{ color: conditionColor(a.condition), fontWeight: "700" }}>{a.condition}</Text>
-                </View>
+                </Pressable>
                 <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
                   <Pressable onPress={() => openEditAppliance(a)}>
                     <Text style={{ color: colors.primary, fontWeight: "700" }}>Edit</Text>
                   </Pressable>
                   <Pressable
                     onPress={async () => {
-                      const ok = await confirmDestructive("Delete", `Remove "${a.name}"?`);
-                      if (ok) deleteAppliance(a.id);
+                      const ok = await confirmDestructive(
+                        "Delete Appliance",
+                        `Remove "${a.name}"? This cannot be undone.`
+                      );
+                      if (!ok) return;
+                      try {
+                        await deleteAppliance(a.id);
+                        notifyUser("Appliance deleted");
+                      } catch (e) {
+                        notifyUser(
+                          "Could not delete appliance",
+                          e instanceof Error ? e.message : String(e)
+                        );
+                      }
                     }}
                   >
                     <Text style={styles.deleteText}>Delete</Text>
                   </Pressable>
                 </View>
               </Card>
-              </Pressable>
               );
             })
           )
@@ -2030,6 +2042,33 @@ export default function PropertyDetailContent({
         >
           <Text style={styles.ghostButtonText}>Cancel</Text>
         </Pressable>
+        {modal === "appliance" && editingId ? (
+          <Pressable
+            style={[styles.ghostButton, { marginTop: 4 }]}
+            disabled={isSaving}
+            onPress={async () => {
+              if (isSaving) return;
+              const ok = await confirmDestructive(
+                "Delete Appliance",
+                `Remove "${aName.trim() || "this appliance"}"? This cannot be undone.`
+              );
+              if (!ok) return;
+              try {
+                await deleteAppliance(editingId);
+                setModal(null);
+                setEditingId(null);
+                notifyUser("Appliance deleted");
+              } catch (e) {
+                notifyUser(
+                  "Could not delete appliance",
+                  e instanceof Error ? e.message : String(e)
+                );
+              }
+            }}
+          >
+            <Text style={[styles.ghostButtonText, { color: colors.danger }]}>Delete Appliance</Text>
+          </Pressable>
+        ) : null}
         <View style={{ height: 20 }} />
       </KeyboardModal>
 

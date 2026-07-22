@@ -41,10 +41,15 @@ export default function PropertySharingScreen() {
   const [expiresDays, setExpiresDays] = useState("30");
   const [saving, setSaving] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
-  const [sharingToken, setSharingToken] = useState<string | null>(null);
+  /** Tracks in-flight Share / Open Link so the spinner always clears in finally. */
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       setShares(await fetchPropertyShares(user.id));
     } catch (e: unknown) {
@@ -130,36 +135,49 @@ export default function PropertySharingScreen() {
   }
 
   async function shareLink(share: PropertyShare) {
-    setSharingToken(share.share_token);
+    if (busyKey) return;
+    const key = `share:${share.share_token}`;
+    setBusyKey(key);
     setShareFeedback(null);
+    let result: Awaited<ReturnType<typeof sharePropertyLink>> | null = null;
     try {
-      const result = await sharePropertyLink({
+      result = await sharePropertyLink({
         token: share.share_token,
         label: share.label,
         propertyLabel: share.property_label,
       });
-      if (result.ok) {
-        setShareFeedback(`Share link copied\n${result.url}`);
-      } else {
-        setShareFeedback(result.error);
-      }
     } finally {
-      setSharingToken(null);
+      setBusyKey(null);
+    }
+
+    if (!result) return;
+    if (result.ok) {
+      setShareFeedback(`Share link copied\n${result.url}`);
+      notifyUser("Share link copied", result.url);
+    } else {
+      setShareFeedback(result.error);
+      notifyUser("Share failed", result.error);
     }
   }
 
   async function openLink(share: PropertyShare) {
-    setSharingToken(share.share_token);
+    if (busyKey) return;
+    const key = `open:${share.share_token}`;
+    setBusyKey(key);
     setShareFeedback(null);
+    let result: Awaited<ReturnType<typeof openShareLink>> | null = null;
     try {
-      const result = await openShareLink(share.share_token);
-      if (result.ok) {
-        setShareFeedback(`Opened\n${result.url}`);
-      } else {
-        setShareFeedback(result.error);
-      }
+      result = await openShareLink(share.share_token);
     } finally {
-      setSharingToken(null);
+      setBusyKey(null);
+    }
+
+    if (!result) return;
+    if (result.ok) {
+      setShareFeedback(`Opened\n${result.url}`);
+    } else {
+      setShareFeedback(result.error);
+      notifyUser("Open failed", result.error);
     }
   }
 
@@ -217,7 +235,8 @@ export default function PropertySharingScreen() {
           <View style={{ marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 10, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#F59E0B" }}>
             <Text style={{ color: "#92400E", fontWeight: "700" }}>{SHARE_NOT_CONFIGURED_MESSAGE}</Text>
             <Text style={{ color: "#92400E", marginTop: 4, fontSize: 12 }}>
-              Set EXPO_PUBLIC_SHARE_BASE_URL to your deployed web app (e.g. https://your-domain.com/share) before sharing links.
+              Set EXPO_PUBLIC_SHARE_BASE_URL to your deployed web app origin
+              (e.g. https://property-journal.vercel.app). Links become {"/share/<token>"}.
             </Text>
           </View>
         ) : null}
@@ -264,7 +283,9 @@ export default function PropertySharingScreen() {
             ) : (
               shares.map((share) => {
                 const publicUrl = buildShareUrl(share.share_token);
-                const busy = sharingToken === share.share_token;
+                const shareBusy = busyKey === `share:${share.share_token}`;
+                const openBusy = busyKey === `open:${share.share_token}`;
+                const rowBusy = shareBusy || openBusy || Boolean(busyKey);
                 return (
                   <Card key={share.id}>
                     <View style={styles.rowBetween}>
@@ -293,11 +314,11 @@ export default function PropertySharingScreen() {
                     </View>
                     <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                       <Pressable
-                        onPress={() => shareLink(share)}
-                        disabled={busy || !shareConfigured}
-                        style={[styles.primaryButton, { flex: 1, minWidth: 100, marginTop: 0, paddingVertical: 12, opacity: busy || !shareConfigured ? 0.6 : 1 }]}
+                        onPress={() => void shareLink(share)}
+                        disabled={rowBusy || !shareConfigured}
+                        style={[styles.primaryButton, { flex: 1, minWidth: 100, marginTop: 0, paddingVertical: 12, opacity: rowBusy || !shareConfigured ? 0.6 : 1 }]}
                       >
-                        {busy ? (
+                        {shareBusy ? (
                           <ActivityIndicator color="#fff" />
                         ) : (
                           <>
@@ -307,11 +328,15 @@ export default function PropertySharingScreen() {
                         )}
                       </Pressable>
                       <Pressable
-                        onPress={() => openLink(share)}
-                        disabled={busy || !shareConfigured}
-                        style={[styles.secondaryButton, { flex: 1, minWidth: 100, marginTop: 0, opacity: busy || !shareConfigured ? 0.6 : 1 }]}
+                        onPress={() => void openLink(share)}
+                        disabled={rowBusy || !shareConfigured}
+                        style={[styles.secondaryButton, { flex: 1, minWidth: 100, marginTop: 0, opacity: rowBusy || !shareConfigured ? 0.6 : 1 }]}
                       >
-                        <Text style={styles.secondaryButtonText}>Open Link</Text>
+                        {openBusy ? (
+                          <ActivityIndicator color={colors.primary} />
+                        ) : (
+                          <Text style={styles.secondaryButtonText}>Open Link</Text>
+                        )}
                       </Pressable>
                       <Pressable onPress={() => openEdit(share)} style={[styles.secondaryButton, { flex: 1, minWidth: 80, marginTop: 0 }]}>
                         <Text style={styles.secondaryButtonText}>Edit</Text>
