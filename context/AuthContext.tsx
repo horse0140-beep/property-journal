@@ -395,16 +395,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const AUTH_BOOT_MS = 10000;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Never leave the app on the navy AuthGate forever if getSession hangs
+    // (observed on some mobile browsers).
+    const bootTimer = setTimeout(() => {
       if (!mounted) return;
+      setState((s) => (s.isLoaded ? s : { ...s, isLoaded: true }));
+    }, AUTH_BOOT_MS);
 
-      if (session?.user) {
-        applySession(session.user);
-      } else {
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return;
+
+        if (session?.user) {
+          void applySession(session.user);
+        } else {
+          setState((s) => ({ ...s, isLoaded: true }));
+        }
+      })
+      .catch((e) => {
+        console.warn("[auth] getSession failed during bootstrap", e);
+        if (!mounted) return;
         setState((s) => ({ ...s, isLoaded: true }));
-      }
-    });
+      })
+      .finally(() => {
+        clearTimeout(bootTimer);
+      });
 
     const {
       data: { subscription },
@@ -418,6 +436,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(bootTimer);
       subscription.unsubscribe();
     };
   }, [applySession]);

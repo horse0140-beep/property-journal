@@ -1,7 +1,7 @@
-import { Stack, router, useSegments } from "expo-router";
+import { Stack, router, useSegments, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -26,15 +26,31 @@ const SPLASH_BG = "#0F2460";
 // Keep the native splash up until auth bootstrap finishes (hide once).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+/** Public share links must render without waiting on auth bootstrap. */
+function useIsPublicShareRoute(): boolean {
+  const segments = useSegments();
+  const pathname = usePathname();
+  if (segments[0] === "share") return true;
+  if (typeof pathname === "string" && pathname.startsWith("/share")) return true;
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    return window.location.pathname.startsWith("/share");
+  }
+  return false;
+}
+
 function SplashController() {
   const { isLoaded } = useAuth();
+  const inShare = useIsPublicShareRoute();
   const hidden = useRef(false);
 
   useEffect(() => {
-    if (!isLoaded || hidden.current) return;
-    hidden.current = true;
-    SplashScreen.hideAsync().catch(() => {});
-  }, [isLoaded]);
+    // Public share: never hold the splash / navy gate for auth.
+    if (inShare || isLoaded) {
+      if (hidden.current) return;
+      hidden.current = true;
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isLoaded, inShare]);
 
   return null;
 }
@@ -42,6 +58,7 @@ function SplashController() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
   const segments = useSegments();
+  const inShare = useIsPublicShareRoute();
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -50,9 +67,8 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const inOnboarding = segments[0] === "onboarding";
     const inLegal = segments[0] === "legal";
     const inAdmin = segments[0] === "admin";
-    const inShare = segments[0] === "share";
 
-    if (inLegal || inAdmin || inShare) return;
+    if (inLegal || inAdmin || inShare || segments[0] === "share") return;
 
     if (!isSignedIn && !inAuthGroup) {
       router.replace("/auth/sign-in");
@@ -67,10 +83,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         router.replace(v === "1" ? "/(tabs)" : "/onboarding");
       });
     }
-  }, [isLoaded, isSignedIn, segments]);
+  }, [isLoaded, isSignedIn, segments, inShare]);
 
-  if (!isLoaded) {
-    // Native splash still visible — keep matching navy so no white flash if it hides early.
+  // CRITICAL: do not block /share/* behind the navy auth splash.
+  // Mobile browsers opening a shared link previously saw only solid #0F2460.
+  if (!isLoaded && !inShare) {
     return <View style={{ flex: 1, backgroundColor: SPLASH_BG }} />;
   }
 
@@ -163,17 +180,18 @@ function ConnectivityRefresh() {
 
 function AppProviders({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
+  const inShare = useIsPublicShareRoute();
   return (
     <OfflineProvider>
       <SubscriptionProvider>
         <UpgradeProvider>
           <HomeWiseProvider isSignedIn={isSignedIn}>
-            <NotificationBootstrap />
+            {!inShare ? <NotificationBootstrap /> : null}
             <DeepLinkHandler />
-            <ConnectivityRefresh />
-            <OfflineBanner />
+            {!inShare ? <ConnectivityRefresh /> : null}
+            {!inShare ? <OfflineBanner /> : null}
             {children}
-            <UpgradeModal />
+            {!inShare ? <UpgradeModal /> : null}
           </HomeWiseProvider>
         </UpgradeProvider>
       </SubscriptionProvider>

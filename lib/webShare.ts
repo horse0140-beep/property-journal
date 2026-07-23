@@ -78,7 +78,9 @@ async function copyTextWeb(text: string): Promise<boolean> {
 
 /**
  * Share a property link (single URL builder).
- * Web: clipboard first (reliable), then optional Web Share — never depends on navigator.share alone.
+ * Native (iOS/Android): system share sheet — do not regress.
+ * Web mobile: prefer navigator.share (Android/iOS sheet), then clipboard.
+ * Web desktop: clipboard first.
  */
 export async function sharePropertyLink(opts: {
   token: string;
@@ -94,58 +96,68 @@ export async function sharePropertyLink(opts: {
 
   const intro = `View my Property Journal property history for ${opts.propertyLabel}.`;
 
-  if (Platform.OS === "web") {
+  // Native app share sheet — leave this path intact.
+  if (Platform.OS !== "web") {
+    const message = buildShareMessage(opts.token, intro);
+    if (!message) {
+      return { ok: false, url: null, error: SHARE_NOT_CONFIGURED_MESSAGE };
+    }
     try {
-      shareAudit("10", { method: "clipboard", finalUrl: url });
-      const copied = await copyTextWeb(url);
-      if (copied) {
-        shareAudit("11", { method: "clipboard", result: "ok", finalUrl: url });
-
-        // Optional native sheet — never block success on it.
-        const nav = typeof navigator !== "undefined" ? navigator : null;
-        if (nav && typeof nav.share === "function") {
-          void withTimeout(
-            nav.share({ title: opts.label, text: intro, url }),
-            SHARE_TIMEOUT_MS,
-            "navigator.share"
-          ).catch((err) => {
-            if (!(err instanceof Error && err.name === "AbortError")) {
-              shareAuditFailure("11 navigator.share optional", err, { finalUrl: url });
-            }
-          });
-        }
-
-        return { ok: true, url, method: "clipboard" };
-      }
-
-      const error = `Unable to share: clipboard copy failed. Copy manually:\n\n${url}`;
-      shareAudit("11", { method: "clipboard", result: "fail", error, finalUrl: url });
-      return { ok: false, url, error };
+      shareAudit("10", { method: "native_share", finalUrl: url });
+      await Share.share({ message, title: opts.label });
+      shareAudit("11", { method: "native_share", result: "ok", finalUrl: url });
+      return { ok: true, url, method: "clipboard" };
     } catch (e) {
       const error = `Unable to share: ${e instanceof Error ? e.message : String(e)}`;
-      shareAuditFailure("11 web share", e, { finalUrl: url });
+      shareAuditFailure("11 native Share.share", e, { finalUrl: url });
       return { ok: false, url, error };
     }
   }
 
-  const message = buildShareMessage(opts.token, intro);
-  if (!message) {
-    return { ok: false, url: null, error: SHARE_NOT_CONFIGURED_MESSAGE };
-  }
-
+  // Web
   try {
-    shareAudit("10", { method: "native_share", finalUrl: url });
-    await withTimeout(Share.share({ message, title: opts.label }), SHARE_TIMEOUT_MS, "Share.share");
-    shareAudit("11", { method: "native_share", result: "ok", finalUrl: url });
-    return { ok: true, url, method: "clipboard" };
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+    const mobileWeb = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+
+    // Preserve Android/iOS web share sheet when available.
+    if (mobileWeb && nav && typeof nav.share === "function") {
+      shareAudit("10", { method: "webshare", finalUrl: url });
+      try {
+        await withTimeout(
+          nav.share({ title: opts.label, text: intro, url }),
+          SHARE_TIMEOUT_MS,
+          "navigator.share"
+        );
+        shareAudit("11", { method: "webshare", result: "ok", finalUrl: url });
+        return { ok: true, url, method: "webshare" };
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return { ok: false, url, error: "Share cancelled" };
+        }
+        shareAuditFailure("11 navigator.share", err, { finalUrl: url });
+        // Fall through to clipboard.
+      }
+    }
+
+    shareAudit("10", { method: "clipboard", finalUrl: url });
+    const copied = await copyTextWeb(url);
+    if (copied) {
+      shareAudit("11", { method: "clipboard", result: "ok", finalUrl: url });
+      return { ok: true, url, method: "clipboard" };
+    }
+
+    const error = `Unable to share: clipboard copy failed. Copy manually:\n\n${url}`;
+    shareAudit("11", { method: "clipboard", result: "fail", error, finalUrl: url });
+    return { ok: false, url, error };
   } catch (e) {
     const error = `Unable to share: ${e instanceof Error ? e.message : String(e)}`;
-    shareAuditFailure("11 native Share.share", e, { finalUrl: url });
+    shareAuditFailure("11 web share", e, { finalUrl: url });
     return { ok: false, url, error };
   }
 }
 
-/** Open the public HTTPS share URL in a new tab (web) or system browser (native). */
+/** Open the public HTTPS share URL. Mobile web uses same-tab navigation (window.open often stalls). */
 export async function openShareLink(token: string): Promise<ShareLinkResult> {
   shareAudit("12", { token });
   const url = buildShareUrl(token, { audit: true });
@@ -163,16 +175,30 @@ export async function openShareLink(token: string): Promise<ShareLinkResult> {
 
   try {
     if (Platform.OS === "web" && typeof window !== "undefined") {
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+      const mobileWeb = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+
+      if (mobileWeb) {
+        // window.open(..., noopener) frequently returns null / stalls on Android browsers.
+        window.location.assign(url);
+        shareAudit("12", { result: "ok", finalUrl: url, method: "location.assign" });
+        return { ok: true, url, method: "clipboard" };
+      }
+
       const opened = window.open(url, "_blank", "noopener,noreferrer");
       if (!opened) {
-        const error =
-          "Unable to open: popup blocked. Allow popups or paste the link in a new tab.";
-        shareAuditFailure("12 window.open", new Error(error), { finalUrl: url });
-        return { ok: false, url, error };
+        window.location.assign(url);
+        shareAudit("12", {
+          result: "ok",
+          finalUrl: url,
+          method: "location.assign_fallback",
+        });
+        return { ok: true, url, method: "clipboard" };
       }
       shareAudit("12", { result: "ok", finalUrl: url, method: "window.open" });
       return { ok: true, url, method: "clipboard" };
     }
+
     await withTimeout(Linking.openURL(url), SHARE_TIMEOUT_MS, "Linking.openURL");
     shareAudit("12", { result: "ok", finalUrl: url, method: "Linking.openURL" });
     return { ok: true, url, method: "clipboard" };
