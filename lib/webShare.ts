@@ -199,9 +199,12 @@ export async function openShareLink(token: string): Promise<ShareLinkResult> {
       return { ok: true, url, method: "clipboard" };
     }
 
-    await withTimeout(Linking.openURL(url), SHARE_TIMEOUT_MS, "Linking.openURL");
-    shareAudit("12", { result: "ok", finalUrl: url, method: "Linking.openURL" });
-    return { ok: true, url, method: "clipboard" };
+    // Android Linking.openURL often never resolves — do not await / hang the UI.
+      void Linking.openURL(url).catch((e) => {
+        shareAuditFailure("12 Linking.openURL", e, { finalUrl: url });
+      });
+      shareAudit("12", { result: "ok", finalUrl: url, method: "Linking.openURL" });
+      return { ok: true, url, method: "clipboard" };
   } catch (e) {
     const error = `Unable to open: ${e instanceof Error ? e.message : String(e)}`;
     shareAuditFailure("12 openShareLink", e, { finalUrl: url });

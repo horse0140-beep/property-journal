@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -86,8 +86,10 @@ export default function SharedPropertyScreen() {
     Platform.OS === "web" && typeof window !== "undefined" ? window.location.href : null;
 
   // Mobile web: Expo SPA sets body { overflow: hidden } which can trap content.
-  useEffect(() => {
+  // useLayoutEffect runs before paint so Android does not show a blank frame.
+  useLayoutEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
+    document.documentElement.classList.add("pj-share-route");
     const prevHtml = document.documentElement.style.overflow;
     const prevBody = document.body.style.overflow;
     const prevBodyHeight = document.body.style.height;
@@ -97,6 +99,7 @@ export default function SharedPropertyScreen() {
     document.body.style.height = "auto";
     document.documentElement.style.height = "auto";
     return () => {
+      document.documentElement.classList.remove("pj-share-route");
       document.documentElement.style.overflow = prevHtml;
       document.body.style.overflow = prevBody;
       document.body.style.height = prevBodyHeight;

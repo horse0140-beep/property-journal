@@ -26,15 +26,25 @@ const SPLASH_BG = "#0F2460";
 // Keep the native splash up until auth bootstrap finishes (hide once).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+/** Synchronous web check — must not wait for expo-router hydration. */
+function isPublicShareUrlSync(): boolean {
+  if (Platform.OS !== "web") return false;
+  if (typeof window === "undefined") return false;
+  try {
+    return /^\/share(\/|$)/i.test(window.location.pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** Public share links must render without waiting on auth bootstrap. */
 function useIsPublicShareRoute(): boolean {
   const segments = useSegments();
   const pathname = usePathname();
+  // Prefer sync URL first so cold mobile opens never paint the navy AuthGate.
+  if (isPublicShareUrlSync()) return true;
   if (segments[0] === "share") return true;
   if (typeof pathname === "string" && pathname.startsWith("/share")) return true;
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    return window.location.pathname.startsWith("/share");
-  }
   return false;
 }
 
@@ -45,12 +55,18 @@ function SplashController() {
 
   useEffect(() => {
     // Public share: never hold the splash / navy gate for auth.
-    if (inShare || isLoaded) {
+    if (inShare || isLoaded || isPublicShareUrlSync()) {
       if (hidden.current) return;
       hidden.current = true;
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [isLoaded, inShare]);
+
+  // Hide splash immediately on share cold start (before effects).
+  if (isPublicShareUrlSync() && !hidden.current) {
+    hidden.current = true;
+    SplashScreen.hideAsync().catch(() => {});
+  }
 
   return null;
 }
@@ -58,7 +74,7 @@ function SplashController() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
   const segments = useSegments();
-  const inShare = useIsPublicShareRoute();
+  const inShare = useIsPublicShareRoute() || isPublicShareUrlSync();
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -85,8 +101,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [isLoaded, isSignedIn, segments, inShare]);
 
-  // CRITICAL: do not block /share/* behind the navy auth splash.
-  // Mobile browsers opening a shared link previously saw only solid #0F2460.
+  // CRITICAL: never block /share/* behind the navy auth splash (#0F2460).
   if (!isLoaded && !inShare) {
     return <View style={{ flex: 1, backgroundColor: SPLASH_BG }} />;
   }
@@ -180,18 +195,24 @@ function ConnectivityRefresh() {
 
 function AppProviders({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
-  const inShare = useIsPublicShareRoute();
+  const inShare = useIsPublicShareRoute() || isPublicShareUrlSync();
+
+  // Public share: skip authenticated app chrome (HomeWise loaders, upgrade modal, etc.).
+  if (inShare) {
+    return <>{children}</>;
+  }
+
   return (
     <OfflineProvider>
       <SubscriptionProvider>
         <UpgradeProvider>
           <HomeWiseProvider isSignedIn={isSignedIn}>
-            {!inShare ? <NotificationBootstrap /> : null}
+            <NotificationBootstrap />
             <DeepLinkHandler />
-            {!inShare ? <ConnectivityRefresh /> : null}
-            {!inShare ? <OfflineBanner /> : null}
+            <ConnectivityRefresh />
+            <OfflineBanner />
             {children}
-            {!inShare ? <UpgradeModal /> : null}
+            <UpgradeModal />
           </HomeWiseProvider>
         </UpgradeProvider>
       </SubscriptionProvider>
@@ -200,31 +221,40 @@ function AppProviders({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const publicShare = isPublicShareUrlSync();
+
+  const stack = (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="auth/sign-in" options={{ animation: "fade" }} />
+      <Stack.Screen name="auth/sign-up" options={{ animation: "slide_from_right" }} />
+      <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
+      <Stack.Screen name="auth/reset-password" options={{ animation: "fade" }} />
+      <Stack.Screen name="auth/callback" options={{ animation: "fade" }} />
+      <Stack.Screen name="auth/confirm-email" options={{ animation: "fade" }} />
+      <Stack.Screen name="onboarding/index" options={{ animation: "fade" }} />
+      <Stack.Screen name="legal/privacy" options={{ presentation: "modal" }} />
+      <Stack.Screen name="legal/terms" options={{ presentation: "modal" }} />
+      <Stack.Screen name="ai" options={{ animation: "slide_from_bottom" }} />
+      <Stack.Screen name="vault/photos" options={{ animation: "slide_from_right" }} />
+      <Stack.Screen name="admin" options={{ animation: "slide_from_right" }} />
+      <Stack.Screen name="share" options={{ animation: "fade" }} />
+    </Stack>
+  );
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <SplashController />
         <StatusBar style="dark" />
-        <AppProviders>
-          <AuthGate>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="auth/sign-in" options={{ animation: "fade" }} />
-              <Stack.Screen name="auth/sign-up" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="auth/reset-password" options={{ animation: "fade" }} />
-              <Stack.Screen name="auth/callback" options={{ animation: "fade" }} />
-              <Stack.Screen name="auth/confirm-email" options={{ animation: "fade" }} />
-              <Stack.Screen name="onboarding/index" options={{ animation: "fade" }} />
-              <Stack.Screen name="legal/privacy" options={{ presentation: "modal" }} />
-              <Stack.Screen name="legal/terms" options={{ presentation: "modal" }} />
-              <Stack.Screen name="ai" options={{ animation: "slide_from_bottom" }} />
-              <Stack.Screen name="vault/photos" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="admin" options={{ animation: "slide_from_right" }} />
-              <Stack.Screen name="share" options={{ animation: "fade" }} />
-            </Stack>
-          </AuthGate>
-        </AppProviders>
+        {publicShare ? (
+          // Cold /share/* open: skip AuthGate navy + authenticated providers.
+          stack
+        ) : (
+          <AppProviders>
+            <AuthGate>{stack}</AuthGate>
+          </AppProviders>
+        )}
       </AuthProvider>
     </SafeAreaProvider>
   );
