@@ -23,6 +23,27 @@ import { supabase } from "@/lib/supabase";
 /** Deep navy — must match app.json splash.backgroundColor to avoid flash. */
 const SPLASH_BG = "#0F2460";
 
+/**
+ * SPA exports ignore app/+html.tsx and always inject body { overflow: hidden }.
+ * Unlock scrolling as soon as this module evaluates on /share/* (before React paint).
+ */
+(function unlockPublicShareScrollEarly() {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  try {
+    if (!/^\/share(\/|$)/i.test(window.location.pathname)) return;
+    document.documentElement.classList.add("pj-share-route");
+    if (document.getElementById("pj-share-unlock")) return;
+    const style = document.createElement("style");
+    style.id = "pj-share-unlock";
+    style.textContent =
+      "html.pj-share-route,html.pj-share-route body{height:auto!important;min-height:100%!important;overflow:auto!important;overflow-y:auto!important;background-color:#F0F4FF!important;}" +
+      "html.pj-share-route #root{height:auto!important;min-height:100vh!important;display:block!important;}";
+    document.head.appendChild(style);
+  } catch {
+    // ignore
+  }
+})();
+
 // Keep the native splash up until auth bootstrap finishes (hide once).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
