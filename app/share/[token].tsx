@@ -1,4 +1,24 @@
-import { Component, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+/**
+ * FORENSIC INSTRUMENTATION — temporary.
+ * Module-load marker runs immediately after imports to prove the route file evaluated.
+ */
+import {
+  forensicFail,
+  forensicModuleLoad,
+  forensicStep,
+  formatForensicReport,
+  getForensicEntries,
+  getLastForensicException,
+  installShareForensicErrorHandlers,
+  diagnoseMissingStep,
+  maskShareToken,
+  safeShareHref,
+  startShareErudaConsole,
+  subscribeForensics,
+  type ForensicEntry,
+} from "@/lib/publicShareForensics";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Component } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -14,8 +34,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, styles } from "@/constants/theme";
 import { fetchPropertyShareByToken } from "@/services/sharingService";
-import { shareAudit, shareAuditFailure } from "@/lib/shareAudit";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { PropertyShare } from "@/types/premium";
+
+forensicModuleLoad("app/share/[token].tsx");
 
 type Snapshot = {
   address?: string;
@@ -32,18 +54,14 @@ type LoadErrorKind = "invalid" | "timeout" | "error";
 const LOAD_TIMEOUT_MS = 12000;
 const HOME_URL = "https://property-journal.vercel.app/";
 
-function publicShareLog(step: string, fields?: Record<string, unknown>) {
-  console.info(`[PUBLIC SHARE ${step}]`, fields ?? {});
-  console.info(`[PUBLIC FLOW ${step}]`, fields ?? {});
-}
-
 function asSnapshot(raw: unknown): Snapshot {
   if (raw == null) return {};
   let value: unknown = raw;
   if (typeof value === "string") {
     try {
       value = JSON.parse(value);
-    } catch {
+    } catch (e) {
+      forensicFail("asSnapshot JSON.parse", e, "app/share/[token].tsx asSnapshot");
       return {};
     }
   }
@@ -62,16 +80,23 @@ function formatCreatedAt(value: unknown): string {
     const d = new Date(String(value));
     if (Number.isNaN(d.getTime())) return "—";
     return d.toLocaleDateString();
-  } catch {
+  } catch (e) {
+    forensicFail("formatCreatedAt", e, "app/share/[token].tsx formatCreatedAt");
     return "—";
   }
 }
 
-/**
- * Public read-only share page.
- * Avoids Screen/tab layout and authenticated context hooks.
- */
 export default function SharedPropertyScreen() {
+  // STEP 1 once — if this never logs, route never mounted / never rendered.
+  const loggedMount = useRef(false);
+  if (!loggedMount.current) {
+    loggedMount.current = true;
+    forensicStep(1, "SharedPropertyScreen function invoked (first render)", {
+      platform: Platform.OS,
+      href: safeShareHref(),
+    });
+  }
+
   return (
     <ShareErrorBoundary>
       <SharedPropertyScreenInner />
@@ -81,56 +106,176 @@ export default function SharedPropertyScreen() {
 
 class ShareErrorBoundary extends Component<
   { children: ReactNode },
-  { hasError: boolean; message: string }
+  { hasError: boolean; message: string; stack?: string }
 > {
-  state = { hasError: false, message: "" };
+  state = { hasError: false, message: "", stack: undefined as string | undefined };
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, message: error?.message || "Unknown render error" };
+    return {
+      hasError: true,
+      message: error?.message || "Unknown render error",
+      stack: error?.stack,
+    };
   }
 
   componentDidCatch(error: Error, info: { componentStack?: string }) {
-    console.info("[PUBLIC FLOW FAIL]", {
-      name: error?.name,
-      message: error?.message,
-      stack: error?.stack,
-      componentStack: info?.componentStack,
-    });
+    forensicFail(
+      "ShareErrorBoundary",
+      error,
+      `app/share/[token].tsx ShareErrorBoundary${info.componentStack ? info.componentStack.split("\n")[1] ?? "" : ""}`
+    );
+    console.error("[SHARE FORENSICS] componentDidCatch stack", error.stack);
+    console.error("[SHARE FORENSICS] componentStack", info.componentStack);
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right", "bottom"]}>
-          <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
+        <SafeAreaView
+          style={{ flex: 1, backgroundColor: colors.bg }}
+          edges={["top", "left", "right", "bottom"]}
+        >
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
             <Text style={[styles.emptyStateTitle, { textAlign: "left" }]}>
               Something went wrong while displaying this property.
             </Text>
-            <Text style={[styles.emptyStateText, { textAlign: "left", marginTop: 8 }]}>
+            <Text style={{ color: colors.danger, marginTop: 8, fontWeight: "700" }}>
               {this.state.message}
             </Text>
+            {this.state.stack ? (
+              <Text
+                selectable
+                style={{
+                  color: colors.textPrimary,
+                  fontSize: 11,
+                  marginTop: 12,
+                  fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+                }}
+              >
+                {this.state.stack}
+              </Text>
+            ) : null}
+            <ForensicsHud forceVisible />
             <Pressable
               style={[styles.primaryButton, { marginTop: 20 }]}
-              onPress={() => this.setState({ hasError: false, message: "" })}
+              onPress={() => this.setState({ hasError: false, message: "", stack: undefined })}
             >
               <Text style={styles.primaryButtonText}>Retry</Text>
             </Pressable>
-            <Pressable
-              style={[styles.secondaryButton, { marginTop: 10 }]}
-              onPress={() => {
-                if (Platform.OS === "web" && typeof window !== "undefined") {
-                  window.location.assign(HOME_URL);
-                }
-              }}
-            >
-              <Text style={styles.secondaryButtonText}>Return to Property Journal</Text>
-            </Pressable>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       );
     }
     return this.props.children;
   }
+}
+
+function ForensicsHud({ forceVisible }: { forceVisible?: boolean }) {
+  const [trail, setTrail] = useState<ForensicEntry[]>(() => getForensicEntries());
+  const [expanded, setExpanded] = useState(true);
+  const lastEx = getLastForensicException();
+
+  useEffect(() => subscribeForensics(setTrail), []);
+
+  if (!forceVisible && !expanded && trail.length === 0) return null;
+
+  const reached = new Set(
+    trail.filter((t) => typeof t.step === "number").map((t) => t.step as number)
+  );
+  const lastStep = [...reached].sort((a, b) => a - b).pop() ?? 0;
+  const nextMissing = lastStep < 10 ? lastStep + 1 : null;
+  const diag = diagnoseMissingStep(reached);
+
+  return (
+    <View
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: "#111827",
+        borderWidth: 1,
+        borderColor: "#F59E0B",
+      }}
+    >
+      <Pressable onPress={() => setExpanded((v) => !v)}>
+        <Text style={{ color: "#FBBF24", fontWeight: "800", fontSize: 13 }}>
+          SHARE FORENSICS {expanded ? "▼" : "▶"} · last STEP {lastStep || "none"}
+          {nextMissing ? ` · waiting STEP ${nextMissing}` : " · complete"}
+        </Text>
+      </Pressable>
+      {expanded ? (
+        <>
+          <Text
+            selectable
+            style={{
+              color: "#FDE68A",
+              fontSize: 11,
+              marginTop: 6,
+              fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+            }}
+          >
+            DIAGNOSIS: missing={String(diag.missingStep)}
+            {"\n"}
+            {diag.file} · {diag.component}
+            {"\n"}
+            {diag.lineHint}
+            {"\n"}
+            {diag.hypothesis}
+          </Text>
+          <Text style={{ color: "#E5E7EB", fontSize: 11, marginTop: 6 }}>
+            If a STEP never appears, that is the failure point. Tap Eruda gear for full console + stack.
+          </Text>
+          {trail.slice(-12).map((e, i) => (
+            <Text
+              key={`${e.at}-${i}`}
+              selectable
+              style={{
+                color: e.step === "FAIL" ? "#FCA5A5" : "#D1FAE5",
+                fontSize: 11,
+                marginTop: 4,
+                fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+              }}
+            >
+              {e.label}
+              {e.detail ? ` — ${e.detail}` : ""}
+            </Text>
+          ))}
+          {lastEx ? (
+            <Text
+              selectable
+              style={{
+                color: "#FCA5A5",
+                fontSize: 10,
+                marginTop: 8,
+                fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+              }}
+            >
+              EXCEPTION: {lastEx.message}
+              {"\n"}
+              {lastEx.stack}
+            </Text>
+          ) : null}
+          {Platform.OS === "web" ? (
+            <Pressable
+              onPress={async () => {
+                const report = formatForensicReport();
+                try {
+                  await navigator.clipboard?.writeText(report);
+                } catch {
+                  // ignore
+                }
+              }}
+              style={{ marginTop: 8 }}
+            >
+              <Text style={{ color: "#93C5FD", fontWeight: "700", fontSize: 12 }}>
+                Copy forensic report
+              </Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
+    </View>
+  );
 }
 
 function SharedPropertyScreenInner() {
@@ -140,43 +285,43 @@ function SharedPropertyScreenInner() {
   const contentWidth = Math.min(Math.max(width - 32, 280), 480);
 
   const [share, setShare] = useState<PropertyShare | null>(null);
+  const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [loading, setLoading] = useState(true);
   const [errorKind, setErrorKind] = useState<LoadErrorKind | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [paintedHeader, setPaintedHeader] = useState(false);
+  const [paintedProperty, setPaintedProperty] = useState(false);
 
-  const href =
-    Platform.OS === "web" && typeof window !== "undefined" ? window.location.href : null;
+  const href = safeShareHref();
 
-  // Mobile web: Expo SPA sets body { overflow: hidden } which can trap content.
-  // useLayoutEffect runs before paint so Android does not show a blank frame.
   useLayoutEffect(() => {
-    if (Platform.OS !== "web" || typeof document === "undefined") return;
-    document.documentElement.classList.add("pj-share-route");
-    const prevHtml = document.documentElement.style.overflow;
-    const prevBody = document.body.style.overflow;
-    const prevBodyHeight = document.body.style.height;
-    const prevHtmlHeight = document.documentElement.style.height;
-    document.documentElement.style.overflow = "auto";
-    document.body.style.overflow = "auto";
-    document.body.style.height = "auto";
-    document.documentElement.style.height = "auto";
-    return () => {
-      document.documentElement.classList.remove("pj-share-route");
-      document.documentElement.style.overflow = prevHtml;
-      document.body.style.overflow = prevBody;
-      document.body.style.height = prevBodyHeight;
-      document.documentElement.style.height = prevHtmlHeight;
-    };
+    installShareForensicErrorHandlers();
+    if (Platform.OS === "web") {
+      startShareErudaConsole();
+      document.documentElement.classList.add("pj-share-route");
+      const prevHtml = document.documentElement.style.overflow;
+      const prevBody = document.body.style.overflow;
+      document.documentElement.style.overflow = "auto";
+      document.body.style.overflow = "auto";
+      document.body.style.height = "auto";
+      document.documentElement.style.height = "auto";
+      return () => {
+        document.documentElement.style.overflow = prevHtml;
+        document.body.style.overflow = prevBody;
+      };
+    }
   }, []);
 
   useEffect(() => {
     if (Platform.OS === "web" && typeof document !== "undefined") {
       document.title = "Property Journal · Shared Property";
     }
-    publicShareLog("03", { action: "share screen mounted", href, route: "app/share/[token].tsx" });
-    shareAudit("13", { action: "public route mounted", token: token ?? null, href });
-  }, [token, href]);
+    // Confirm effects run after first paint (provider/Suspense can block this).
+    forensicStep(2, `effect after mount · tokenParamType=${typeof tokenParam}`, {
+      href,
+    });
+  }, [href, tokenParam]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,48 +329,69 @@ function SharedPropertyScreenInner() {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     async function run() {
-      publicShareLog("04", {
-        tokenPresent: Boolean(token?.trim()),
-        tokenLength: token?.trim().length ?? 0,
-        tokenAvailable: Boolean(token?.trim()),
-      });
-
-      if (!token?.trim()) {
-        setShare(null);
-        setErrorKind("invalid");
-        setErrorDetail("Missing share token.");
-        setLoading(false);
-        publicShareLog("07", { branch: "invalid_missing_token" });
-        return;
-      }
-
-      setLoading(true);
-      setErrorKind(null);
-      setErrorDetail(null);
-      setShare(null);
-      publicShareLog("05", { action: "RPC started", rpc: "get_share_by_token" });
-
-      timer = setTimeout(() => {
-        if (cancelled) return;
-        timedOut = true;
-        setLoading(false);
-        setErrorKind("timeout");
-        setErrorDetail("This property is taking too long to load.");
-        publicShareLog("FAIL", { reason: "timeout", ms: LOAD_TIMEOUT_MS });
-        shareAuditFailure("timeout", new Error(`share load timed out after ${LOAD_TIMEOUT_MS}ms`), {
-          token,
-        });
-        publicShareLog("07", { branch: "timeout" });
-      }, LOAD_TIMEOUT_MS);
-
       try {
-        const result = await fetchPropertyShareByToken(token);
+        // Re-log STEP 2 with parsed token for the load pipeline (masked).
+        const parsed = typeof token === "string" ? token.trim() : "";
+        forensicStep(
+          2,
+          parsed
+            ? `token=${maskShareToken(parsed)} tokenLength=${parsed.length}`
+            : "EMPTY/MISSING token",
+          {
+            hasToken: Boolean(parsed),
+            token: parsed ? maskShareToken(parsed) : "(empty)",
+          }
+        );
+
+        if (!parsed) {
+          setErrorKind("invalid");
+          setErrorDetail("Missing share token.");
+          setLoading(false);
+          return;
+        }
+
+        // STEP 3
+        const urlOk = isSupabaseConfigured;
+        let authProbe: string = "skip";
+        try {
+          // Touch client without requiring a session.
+          const { error } = await supabase.auth.getSession();
+          authProbe = error ? `session_error:${error.message}` : "session_ok_or_null";
+        } catch (e) {
+          authProbe = e instanceof Error ? e.message : String(e);
+          forensicFail("supabase.auth.getSession", e, "app/share/[token].tsx STEP 3");
+        }
+        forensicStep(3, `configured=${urlOk} authProbe=${authProbe}`);
+
+        setLoading(true);
+        setErrorKind(null);
+        setErrorDetail(null);
+        setShare(null);
+        setSnapshot({});
+        setPaintedHeader(false);
+        setPaintedProperty(false);
+
+        // STEP 4
+        forensicStep(4, "get_share_by_token starting");
+        timer = setTimeout(() => {
+          if (cancelled) return;
+          timedOut = true;
+          setLoading(false);
+          setErrorKind("timeout");
+          setErrorDetail("This property is taking too long to load.");
+          forensicFail(
+            "RPC timeout",
+            new Error(`RPC timed out after ${LOAD_TIMEOUT_MS}ms`),
+            "app/share/[token].tsx STEP 4/5"
+          );
+        }, LOAD_TIMEOUT_MS);
+
+        const result = await fetchPropertyShareByToken(parsed);
         if (cancelled || timedOut) return;
         if (timer) clearTimeout(timer);
 
-        publicShareLog("06", {
-          action: "RPC finished",
-          hasRow: Boolean(result),
+        // STEP 5
+        forensicStep(5, result ? `row id present=${Boolean(result.id)}` : "RPC returned null", {
           hasSnapshot: Boolean(result?.snapshot_json),
           isActive: result?.is_active ?? null,
         });
@@ -234,36 +400,43 @@ function SharedPropertyScreenInner() {
           setErrorKind("invalid");
           setErrorDetail(null);
           setLoading(false);
-          publicShareLog("07", { branch: "invalid_or_expired" });
           return;
         }
 
-        const normalized: PropertyShare = {
-          ...result,
-          property_label: String(result.property_label ?? "Shared property"),
-          label: String(result.label ?? "Shared link"),
-          snapshot_json: asSnapshot(result.snapshot_json),
-          created_at: result.created_at ?? new Date().toISOString(),
-        };
+        // STEP 6 — log key names only (never snapshot values / addresses / URLs).
+        let normalized: PropertyShare;
+        let snap: Snapshot;
+        try {
+          snap = asSnapshot(result.snapshot_json);
+          normalized = {
+            ...result,
+            property_label: String(result.property_label ?? "Shared property"),
+            label: String(result.label ?? "Shared link"),
+            snapshot_json: snap,
+            created_at: result.created_at ?? new Date().toISOString(),
+          };
+          const keyNames = Object.keys(snap)
+            .filter((k) => !/url|email|address|phone|document/i.test(k))
+            .join(",");
+          forensicStep(6, `snapshotKeyCount=${Object.keys(snap).length} safeKeys=${keyNames || "(none)"}`);
+        } catch (e) {
+          forensicFail("normalization", e, "app/share/[token].tsx STEP 6");
+          setErrorKind("error");
+          setErrorDetail(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+          return;
+        }
+
         setShare(normalized);
+        setSnapshot(snap);
         setLoading(false);
-        publicShareLog("07", { branch: "content" });
-        publicShareLog("08", { action: "property UI painted" });
       } catch (e) {
         if (cancelled || timedOut) return;
         if (timer) clearTimeout(timer);
-        const message = e instanceof Error ? e.message : String(e);
-        const stack = e instanceof Error ? e.stack : undefined;
-        publicShareLog("FAIL", {
-          name: e instanceof Error ? e.name : "Error",
-          message,
-          stack,
-        });
-        shareAuditFailure("16 property data render", e);
+        forensicFail("load pipeline", e, "app/share/[token].tsx SharedPropertyScreenInner.run");
         setErrorKind("error");
-        setErrorDetail(message || "Unable to load this shared property.");
+        setErrorDetail(e instanceof Error ? e.message : String(e));
         setLoading(false);
-        publicShareLog("07", { branch: "error" });
       }
     }
 
@@ -272,9 +445,34 @@ function SharedPropertyScreenInner() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [token, retryKey]);
+  }, [token, tokenParam, retryKey]);
 
-  const snapshot = useMemo(() => asSnapshot(share?.snapshot_json), [share]);
+  useEffect(() => {
+    if (!share || loading) return;
+    // STEP 7 after header commit
+    const id = requestAnimationFrame(() => {
+      if (!paintedHeader) {
+        setPaintedHeader(true);
+        forensicStep(7, "header paint committed");
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [share, loading, paintedHeader]);
+
+  useEffect(() => {
+    if (!share || loading || !paintedHeader) return;
+    const id = requestAnimationFrame(() => {
+      if (!paintedProperty) {
+        setPaintedProperty(true);
+        forensicStep(8, "property overview paint committed");
+        // STEP 9 — public page has no photo gallery; prove photos are not the blocker.
+        forensicStep(9, "skipped — public share UI has no photo/signed-URL section");
+        forensicStep(10, "page complete");
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [share, loading, paintedHeader, paintedProperty]);
+
   const score = snapshot.score;
 
   function goHome() {
@@ -299,16 +497,13 @@ function SharedPropertyScreenInner() {
             minHeight: Math.max(height * 0.7, 320),
           }}
         >
+          <ForensicsHud forceVisible />
           <View style={{ alignSelf: "center", width: contentWidth, maxWidth: "100%" }}>
             <Ionicons name="link-outline" size={48} color={colors.textMuted} />
             <Text style={[styles.emptyStateTitle, { marginTop: 12, textAlign: "left" }]}>{title}</Text>
             {detail ? (
               <Text style={[styles.emptyStateText, { textAlign: "left", marginTop: 8 }]}>{detail}</Text>
-            ) : (
-              <Text style={[styles.emptyStateText, { textAlign: "left", marginTop: 8 }]}>
-                This link may have been revoked, expired, or entered incorrectly.
-              </Text>
-            )}
+            ) : null}
             <Pressable
               style={[styles.primaryButton, { marginTop: 20 }]}
               onPress={() => setRetryKey((k) => k + 1)}
@@ -330,22 +525,14 @@ function SharedPropertyScreenInner() {
         style={{ flex: 1, backgroundColor: colors.bg }}
         edges={["top", "left", "right", "bottom"]}
       >
-        <View
-          style={{
-            flex: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: 320,
-            padding: 24,
-          }}
-        >
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={{ color: colors.textPrimary, marginTop: 12, fontWeight: "700" }}>
-            Loading shared property…
-          </Text>
-          <Text style={{ color: colors.textMuted, marginTop: 8, textAlign: "center" }}>
-            Please wait — this usually takes a few seconds.
-          </Text>
+        <View style={{ flex: 1, padding: 16 }}>
+          <ForensicsHud forceVisible />
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", minHeight: 240 }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ color: colors.textPrimary, marginTop: 12, fontWeight: "700" }}>
+              Loading shared property…
+            </Text>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -389,6 +576,9 @@ function SharedPropertyScreenInner() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ width: contentWidth, maxWidth: "100%" }}>
+          <ForensicsHud forceVisible />
+
+          {/* STEP 7 header */}
           <View style={{ alignItems: "center", marginBottom: 20 }}>
             <Ionicons name="home" size={40} color={colors.primary} />
             <Text
@@ -410,6 +600,7 @@ function SharedPropertyScreenInner() {
             </Text>
           </View>
 
+          {/* STEP 8 property */}
           <View
             style={{
               backgroundColor: colors.bgCard,
@@ -472,14 +663,8 @@ function SharedPropertyScreenInner() {
             </View>
           </View>
 
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: 12,
-              textAlign: "center",
-              marginTop: 24,
-            }}
-          >
+          {/* STEP 9 placeholder — no images */}
+          <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 24 }}>
             Shared via Property Journal · This is a read-only preview
           </Text>
         </View>

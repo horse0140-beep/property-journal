@@ -6,8 +6,9 @@
 export function maskToken(token: string | null | undefined): string {
   const t = (token ?? "").trim();
   if (!t) return "(empty)";
-  if (t.length <= 6) return `${t[0] ?? ""}***`;
-  return `${t.slice(0, 4)}…${t.slice(-3)} (len=${t.length})`;
+  // Last 4 characters only — never log the full share token.
+  if (t.length <= 4) return `…${t}`;
+  return `…${t.slice(-4)} (len=${t.length})`;
 }
 
 export type ShareAuditFields = Record<string, string | number | boolean | null | undefined>;
