@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Component, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -34,6 +34,7 @@ const HOME_URL = "https://property-journal.vercel.app/";
 
 function publicShareLog(step: string, fields?: Record<string, unknown>) {
   console.info(`[PUBLIC SHARE ${step}]`, fields ?? {});
+  console.info(`[PUBLIC FLOW ${step}]`, fields ?? {});
 }
 
 function asSnapshot(raw: unknown): Snapshot {
@@ -71,6 +72,68 @@ function formatCreatedAt(value: unknown): string {
  * Avoids Screen/tab layout and authenticated context hooks.
  */
 export default function SharedPropertyScreen() {
+  return (
+    <ShareErrorBoundary>
+      <SharedPropertyScreenInner />
+    </ShareErrorBoundary>
+  );
+}
+
+class ShareErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; message: string }
+> {
+  state = { hasError: false, message: "" };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error?.message || "Unknown render error" };
+  }
+
+  componentDidCatch(error: Error, info: { componentStack?: string }) {
+    console.info("[PUBLIC FLOW FAIL]", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+      componentStack: info?.componentStack,
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "left", "right", "bottom"]}>
+          <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
+            <Text style={[styles.emptyStateTitle, { textAlign: "left" }]}>
+              Something went wrong while displaying this property.
+            </Text>
+            <Text style={[styles.emptyStateText, { textAlign: "left", marginTop: 8 }]}>
+              {this.state.message}
+            </Text>
+            <Pressable
+              style={[styles.primaryButton, { marginTop: 20 }]}
+              onPress={() => this.setState({ hasError: false, message: "" })}
+            >
+              <Text style={styles.primaryButtonText}>Retry</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryButton, { marginTop: 10 }]}
+              onPress={() => {
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                  window.location.assign(HOME_URL);
+                }
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Return to Property Journal</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function SharedPropertyScreenInner() {
   const { token: tokenParam } = useLocalSearchParams<{ token: string | string[] }>();
   const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
   const { width, height } = useWindowDimensions();
@@ -111,7 +174,7 @@ export default function SharedPropertyScreen() {
     if (Platform.OS === "web" && typeof document !== "undefined") {
       document.title = "Property Journal · Shared Property";
     }
-    publicShareLog("01", { action: "route mounted", href, route: "app/share/[token].tsx" });
+    publicShareLog("03", { action: "share screen mounted", href, route: "app/share/[token].tsx" });
     shareAudit("13", { action: "public route mounted", token: token ?? null, href });
   }, [token, href]);
 
@@ -121,9 +184,10 @@ export default function SharedPropertyScreen() {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     async function run() {
-      publicShareLog("02", {
+      publicShareLog("04", {
         tokenPresent: Boolean(token?.trim()),
         tokenLength: token?.trim().length ?? 0,
+        tokenAvailable: Boolean(token?.trim()),
       });
 
       if (!token?.trim()) {
@@ -139,14 +203,14 @@ export default function SharedPropertyScreen() {
       setErrorKind(null);
       setErrorDetail(null);
       setShare(null);
-      publicShareLog("03", { action: "loading started" });
+      publicShareLog("05", { action: "RPC started", rpc: "get_share_by_token" });
 
       timer = setTimeout(() => {
         if (cancelled) return;
         timedOut = true;
         setLoading(false);
         setErrorKind("timeout");
-        setErrorDetail("This shared property could not be loaded.");
+        setErrorDetail("This property is taking too long to load.");
         publicShareLog("FAIL", { reason: "timeout", ms: LOAD_TIMEOUT_MS });
         shareAuditFailure("timeout", new Error(`share load timed out after ${LOAD_TIMEOUT_MS}ms`), {
           token,
@@ -155,13 +219,12 @@ export default function SharedPropertyScreen() {
       }, LOAD_TIMEOUT_MS);
 
       try {
-        publicShareLog("04", { action: "RPC requested", rpc: "get_share_by_token" });
         const result = await fetchPropertyShareByToken(token);
         if (cancelled || timedOut) return;
         if (timer) clearTimeout(timer);
 
-        publicShareLog("05", {
-          action: "RPC returned",
+        publicShareLog("06", {
+          action: "RPC finished",
           hasRow: Boolean(result),
           hasSnapshot: Boolean(result?.snapshot_json),
           isActive: result?.is_active ?? null,
@@ -182,15 +245,10 @@ export default function SharedPropertyScreen() {
           snapshot_json: asSnapshot(result.snapshot_json),
           created_at: result.created_at ?? new Date().toISOString(),
         };
-        publicShareLog("06", {
-          action: "data normalized",
-          propertyLabelPresent: Boolean(normalized.property_label),
-          snapshotKeys: Object.keys(asSnapshot(normalized.snapshot_json)),
-        });
         setShare(normalized);
         setLoading(false);
         publicShareLog("07", { branch: "content" });
-        publicShareLog("08", { action: "content rendered" });
+        publicShareLog("08", { action: "property UI painted" });
       } catch (e) {
         if (cancelled || timedOut) return;
         if (timer) clearTimeout(timer);
@@ -203,7 +261,7 @@ export default function SharedPropertyScreen() {
         });
         shareAuditFailure("16 property data render", e);
         setErrorKind("error");
-        setErrorDetail(message || "Unable to load shared property");
+        setErrorDetail(message || "Unable to load this shared property.");
         setLoading(false);
         publicShareLog("07", { branch: "error" });
       }
@@ -296,21 +354,21 @@ export default function SharedPropertyScreen() {
   if (errorKind === "timeout") {
     return (
       <Failure
-        title="This shared property could not be loaded."
-        detail="The request timed out. Check your connection and try again."
+        title="This property is taking too long to load."
+        detail="Check your connection and try again."
       />
     );
   }
 
   if (errorKind === "error") {
-    return <Failure title="Unable to load shared property" detail={errorDetail} />;
+    return <Failure title="Unable to load this shared property." detail={errorDetail} />;
   }
 
   if (errorKind === "invalid" || !share) {
     return (
       <Failure
-        title="Share not found or expired"
-        detail="This link may have been revoked, expired, or entered incorrectly. Ask the property owner for a new link."
+        title="This share link is invalid, expired, or no longer active."
+        detail="Ask the property owner for a new link."
       />
     );
   }

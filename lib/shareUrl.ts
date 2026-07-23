@@ -55,24 +55,40 @@ export function buildShareUrl(token: string, opts?: { audit?: boolean }): string
   const audit = opts?.audit === true;
   const envRaw = process.env.EXPO_PUBLIC_SHARE_BASE_URL?.trim() ?? "";
   const base = getShareBaseUrl();
+  const rawToken = token === undefined || token === null ? "" : String(token);
+
   if (audit) {
+    console.info("[SEND AUDIT 01] raw base URL", envRaw || "(unset)");
+    console.info("[SEND AUDIT 02] normalized base URL", base);
     shareAudit("07", { environmentBaseUrl: envRaw || "(unset)" });
     shareAudit("08", { normalizedBaseUrl: base });
+    // Mask token content in console; length is enough for audits.
+    console.info("[SEND AUDIT 03] raw token", rawToken ? `${rawToken.slice(0, 4)}…` : "(empty)");
+    console.info("[SEND AUDIT 04] token length", rawToken.trim().length);
   }
 
   if (!base) {
-    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "base_not_configured" });
+    if (audit) {
+      console.info("[SEND AUDIT 05] final URL", null);
+      shareAudit("09", { finalGeneratedUrl: null, reason: "base_not_configured" });
+    }
     return null;
   }
 
   if (token === undefined || token === null) {
-    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "token_undefined" });
+    if (audit) {
+      console.info("[SEND AUDIT 05] final URL", null);
+      shareAudit("09", { finalGeneratedUrl: null, reason: "token_undefined" });
+    }
     return null;
   }
 
   const clean = String(token).trim();
   if (!clean) {
-    if (audit) shareAudit("09", { finalGeneratedUrl: null, reason: "token_empty" });
+    if (audit) {
+      console.info("[SEND AUDIT 05] final URL", null);
+      shareAudit("09", { finalGeneratedUrl: null, reason: "token_empty" });
+    }
     return null;
   }
 
@@ -80,22 +96,34 @@ export function buildShareUrl(token: string, opts?: { audit?: boolean }): string
 
   // Guardrails against known bad patterns
   if (url.includes("/share/share/")) {
-    if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "double_share_rejected" });
+    if (audit) {
+      console.info("[SEND AUDIT 05] final URL", null);
+      shareAudit("09", { finalGeneratedUrl: url, reason: "double_share_rejected" });
+    }
     return null;
   }
   try {
     const parsed = new URL(url);
     const parts = parsed.pathname.split("/").filter(Boolean);
     if (parts[0] !== "share" || !parts[1] || parts.length !== 2) {
-      if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "path_shape_rejected" });
+      if (audit) {
+        console.info("[SEND AUDIT 05] final URL", null);
+        shareAudit("09", { finalGeneratedUrl: url, reason: "path_shape_rejected" });
+      }
       return null;
     }
   } catch {
-    if (audit) shareAudit("09", { finalGeneratedUrl: url, reason: "url_parse_failed" });
+    if (audit) {
+      console.info("[SEND AUDIT 05] final URL", null);
+      shareAudit("09", { finalGeneratedUrl: url, reason: "url_parse_failed" });
+    }
     return null;
   }
 
-  if (audit) shareAudit("09", { finalGeneratedUrl: url, token: clean });
+  if (audit) {
+    console.info("[SEND AUDIT 05] final URL", url);
+    shareAudit("09", { finalGeneratedUrl: url, token: clean });
+  }
   return url;
 }
 
