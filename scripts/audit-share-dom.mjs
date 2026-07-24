@@ -1,13 +1,23 @@
+/**
+ * Visual verification for public share pages (Pixel viewport).
+ * Usage:
+ *   SHARE_URL=https://…/share/<token> node scripts/audit-share-dom.mjs
+ *   SHARE_EXPECT=invalid|valid|any node scripts/audit-share-dom.mjs
+ */
 import { chromium, devices } from "playwright";
 
 const url =
   process.env.SHARE_URL ||
   "https://property-journal.vercel.app/share/test-invalid-token";
+const expectMode = (process.env.SHARE_EXPECT || "any").toLowerCase();
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   ...devices["Pixel 7"],
   viewport: { width: 412, height: 915 },
+  userAgent:
+    process.env.SHARE_UA ||
+    devices["Pixel 7"].userAgent,
 });
 const page = await context.newPage();
 page.on("console", (msg) => {
@@ -18,79 +28,86 @@ page.on("console", (msg) => {
 });
 
 await page.goto(url, { waitUntil: "networkidle", timeout: 90000 });
-await page.waitForTimeout(5000);
+await page.waitForTimeout(4500);
 
-const report = await page.evaluate(() => {
-  function styleDump(el) {
-    if (!el) return null;
-    const cs = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
-    return {
-      tag: el.tagName,
-      id: el.id || undefined,
-      childElementCount: el.childElementCount,
-      textPreview: (el.innerText || "").replace(/\s+/g, " ").slice(0, 160),
-      rect: {
-        w: Math.round(r.width),
-        h: Math.round(r.height),
-        top: Math.round(r.top),
-      },
-      style: {
-        display: cs.display,
-        visibility: cs.visibility,
-        opacity: cs.opacity,
-        overflow: cs.overflow,
-        overflowY: cs.overflowY,
-        position: cs.position,
-        height: cs.height,
-        minHeight: cs.minHeight,
-        flexGrow: cs.flexGrow,
-        backgroundColor: cs.backgroundColor,
-        pointerEvents: cs.pointerEvents,
-        zIndex: cs.zIndex,
-      },
-    };
-  }
-
-  const root = document.getElementById("root");
-  const chain = [];
-  let el = root;
-  for (let i = 0; i < 16 && el; i++) {
-    chain.push(styleDump(el));
-    el = el.firstElementChild;
-  }
-
-  // Find zero-height parents that still have text descendants
-  const zeroParents = [];
-  const walk = (node, depth) => {
-    if (!node || depth > 20) return;
-    if (node.nodeType === 1) {
-      const r = node.getBoundingClientRect();
-      const text = (node.innerText || "").trim();
-      if (r.height < 2 && text.length > 0) {
-        zeroParents.push({
-          tag: node.tagName,
-          depth,
-          text: text.slice(0, 80),
-          className: String(node.className || "").slice(0, 60),
-        });
-      }
-      for (const c of node.children) walk(c, depth + 1);
+async function capture(label) {
+  return page.evaluate((labelInner) => {
+    function styleDump(el) {
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return {
+        tag: el.tagName,
+        id: el.id || undefined,
+        childElementCount: el.childElementCount,
+        textPreview: (el.innerText || "").replace(/\s+/g, " ").slice(0, 180),
+        rect: {
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          top: Math.round(r.top),
+        },
+        style: {
+          display: cs.display,
+          height: cs.height,
+          minHeight: cs.minHeight,
+          overflow: cs.overflow,
+          backgroundColor: cs.backgroundColor,
+        },
+      };
     }
-  };
-  walk(root, 0);
+    const root = document.getElementById("root");
+    const first = root?.firstElementChild || null;
+    const text = (document.body.innerText || "").replace(/\s+/g, " ");
+    return {
+      label: labelInner,
+      unlock: document.getElementById("pj-share-unlock")?.textContent || null,
+      root: styleDump(root),
+      firstChild: styleDump(first),
+      textLen: text.length,
+      text: text.slice(0, 500),
+      hasRedSmoke: /PUBLIC SHARE WORKS/.test(text),
+      hasInvalid: /invalid, expired, or no longer active/i.test(text),
+      hasPropertyUi:
+        /Property Overview|Home Health Score|Shared via Property Journal/i.test(
+          text
+        ),
+      hasLoading: /Loading shared property/i.test(text),
+    };
+  }, label);
+}
 
-  return {
-    htmlClass: document.documentElement.className,
-    unlock: document.getElementById("pj-share-unlock")?.textContent || null,
-    html: styleDump(document.documentElement),
-    body: styleDump(document.body),
-    chain,
-    zeroParents: zeroParents.slice(0, 12),
-    textLen: (document.body.innerText || "").length,
-    text: (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 500),
-  };
-});
+const first = await capture("initial");
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForTimeout(4500);
+const afterRefresh = await capture("after-refresh");
 
+const report = { url, expectMode, first, afterRefresh };
 console.log(JSON.stringify(report, null, 2));
+
+const rootH = first.root?.rect?.h ?? 0;
+const childH = first.firstChild?.rect?.h ?? 0;
+const unlockOk = /display:flex!important/.test(first.unlock || "");
+let ok = unlockOk && rootH > 100 && childH > 100 && !first.hasRedSmoke;
+
+if (expectMode === "invalid") {
+  ok = ok && first.hasInvalid && afterRefresh.hasInvalid;
+}
+if (expectMode === "valid") {
+  ok = ok && first.hasPropertyUi && afterRefresh.hasPropertyUi;
+}
+
+if (!ok) {
+  console.error("VERIFY_FAIL", {
+    unlockOk,
+    rootH,
+    childH,
+    hasRedSmoke: first.hasRedSmoke,
+    hasInvalid: first.hasInvalid,
+    hasPropertyUi: first.hasPropertyUi,
+  });
+  process.exitCode = 1;
+} else {
+  console.log("VERIFY_OK");
+}
+
 await browser.close();
