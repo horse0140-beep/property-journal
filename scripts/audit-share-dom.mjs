@@ -67,11 +67,16 @@ async function capture(label) {
       text: text.slice(0, 500),
       hasRedSmoke: /PUBLIC SHARE WORKS/.test(text),
       hasInvalid: /invalid, expired, or no longer active/i.test(text),
+      hasForensicsHud: /SHARE FORENSICS|Copy forensic report/i.test(text),
       hasPropertyUi:
-        /Property Overview|Home Health Score|Shared via Property Journal/i.test(
+        /Property Overview|Home Health Score|Read-only Share|Shared via Property Journal/i.test(
           text
         ),
       hasLoading: /Loading shared property/i.test(text),
+      startsWithPropertyChrome:
+        /Read-only Share/i.test(text) &&
+        /Property Overview/i.test(text) &&
+        !/SHARE FORENSICS/i.test(text),
     };
   }, label);
 }
@@ -90,10 +95,15 @@ const unlockOk = /display:flex!important/.test(first.unlock || "");
 let ok = unlockOk && rootH > 100 && childH > 100 && !first.hasRedSmoke;
 
 if (expectMode === "invalid") {
-  ok = ok && first.hasInvalid && afterRefresh.hasInvalid;
+  ok = ok && first.hasInvalid && afterRefresh.hasInvalid && !first.hasForensicsHud;
 }
 if (expectMode === "valid") {
-  ok = ok && first.hasPropertyUi && afterRefresh.hasPropertyUi;
+  ok =
+    ok &&
+    first.hasPropertyUi &&
+    afterRefresh.hasPropertyUi &&
+    !first.hasForensicsHud &&
+    first.startsWithPropertyChrome;
 }
 
 if (!ok) {

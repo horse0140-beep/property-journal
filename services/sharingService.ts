@@ -1,7 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { assertNoError, logTechnicalError } from "@/lib/userErrors";
 import { shareAudit, shareAuditFailure, maskToken } from "@/lib/shareAudit";
-import { forensicFail } from "@/lib/publicShareForensics";
 import type { PropertyShare } from "@/types/premium";
 import * as Crypto from "expo-crypto";
 
@@ -52,11 +51,6 @@ export async function fetchPropertyShareByToken(token: string): Promise<Property
       rpc: "get_share_by_token",
     });
     logTechnicalError("fetchPropertyShareByToken", error);
-    forensicFail(
-      "get_share_by_token RPC error",
-      error,
-      "services/sharingService.ts fetchPropertyShareByToken"
-    );
     return null;
   }
 
@@ -73,21 +67,11 @@ export async function fetchPropertyShareByToken(token: string): Promise<Property
   let row: PropertyShare | null;
   try {
     row = (typeof data === "string" ? JSON.parse(data) : data) as PropertyShare | null;
-  } catch (e) {
-    forensicFail(
-      "RPC JSON.parse row",
-      e,
-      "services/sharingService.ts fetchPropertyShareByToken"
-    );
+  } catch {
     return null;
   }
   if (!row || typeof row !== "object") {
     shareAudit("15", { rpcResult: "invalid_shape", token: trimmed });
-    forensicFail(
-      "RPC invalid row shape",
-      new Error(`typeof data=${typeof data}`),
-      "services/sharingService.ts fetchPropertyShareByToken"
-    );
     return null;
   }
   if (!row.share_token || row.is_active === false) {

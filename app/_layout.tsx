@@ -22,6 +22,7 @@ import { supabase } from "@/lib/supabase";
 import {
   forensicModuleLoad,
   installShareForensicErrorHandlers,
+  isShareDebugEnabled,
   startShareErudaConsole,
 } from "@/lib/publicShareForensics";
 
@@ -39,10 +40,12 @@ const SPLASH_BG = "#0F2460";
   if (typeof document === "undefined" || typeof window === "undefined") return;
   try {
     if (!/^\/share(\/|$)/i.test(window.location.pathname)) return;
-    console.info("[PUBLIC FLOW 01] root layout module evaluated (share path)");
-    forensicModuleLoad("app/_layout.tsx unlockPublicShareScrollEarly");
-    installShareForensicErrorHandlers();
-    startShareErudaConsole();
+    if (isShareDebugEnabled()) {
+      console.info("[PUBLIC FLOW 01] root layout module evaluated (share path)");
+      forensicModuleLoad("app/_layout.tsx unlockPublicShareScrollEarly");
+      installShareForensicErrorHandlers();
+      startShareErudaConsole();
+    }
     document.documentElement.classList.add("pj-share-route");
     if (document.getElementById("pj-share-unlock")) return;
     const style = document.createElement("style");
@@ -266,15 +269,13 @@ function AppProviders({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   const publicShare = isPublicShareUrlSync();
-  const loggedPublic = useRef(false);
-  if (publicShare) {
-    console.info("[PUBLIC FLOW 02] public-route bypass selected");
-    if (!loggedPublic.current) {
-      loggedPublic.current = true;
+  if (isShareDebugEnabled()) {
+    if (publicShare) {
+      console.info("[PUBLIC FLOW 02] public-route bypass selected");
       forensicModuleLoad("app/_layout.tsx RootLayout publicShare=true (AuthGate skipped)");
+    } else {
+      console.info("[PUBLIC FLOW 01] root layout rendered (authenticated app tree)");
     }
-  } else {
-    console.info("[PUBLIC FLOW 01] root layout rendered (authenticated app tree)");
   }
 
   const stack = (

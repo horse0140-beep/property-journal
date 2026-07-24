@@ -66,10 +66,11 @@ const report = await page.evaluate(() => {
     root: r(root),
     firstChild: r(first),
     text: text.slice(0, 400),
-    hasPropertyUi: /Property Overview|Mock Share Property|Home Health Score/i.test(
+    hasPropertyUi: /Property Overview|Mock Share Property|Home Health Score|Read-only Share/i.test(
       text
     ),
     hasRedSmoke: /PUBLIC SHARE WORKS/.test(text),
+    hasForensicsHud: /SHARE FORENSICS|Copy forensic report/i.test(text),
     hasInvalid: /invalid, expired, or no longer active/i.test(text),
   };
 });
@@ -82,6 +83,7 @@ const ok =
   (report.firstChild?.h ?? 0) > 100 &&
   report.hasPropertyUi &&
   !report.hasRedSmoke &&
+  !report.hasForensicsHud &&
   !report.hasInvalid;
 
 console.log(ok ? "VERIFY_VALID_OK" : "VERIFY_VALID_FAIL");

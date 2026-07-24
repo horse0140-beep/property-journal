@@ -1,7 +1,14 @@
 /**
  * Development/audit logging for property share flow.
  * Never logs Supabase keys or full PII. Tokens are masked in reports.
+ * Silent in production unless EXPO_PUBLIC_DEBUG_SHARE=1.
  */
+
+function isShareAuditEnabled(): boolean {
+  if (typeof __DEV__ !== "undefined" && __DEV__) return true;
+  const v = process.env.EXPO_PUBLIC_DEBUG_SHARE?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
 
 export function maskToken(token: string | null | undefined): string {
   const t = (token ?? "").trim();
@@ -13,8 +20,9 @@ export function maskToken(token: string | null | undefined): string {
 
 export type ShareAuditFields = Record<string, string | number | boolean | null | undefined>;
 
-/** Always-on numbered audit steps for share debugging (safe fields only). */
+/** Numbered audit steps for share debugging (safe fields only). Gated. */
 export function shareAudit(step: string, fields?: ShareAuditFields): void {
+  if (!isShareAuditEnabled()) return;
   const safe: ShareAuditFields = {};
   if (fields) {
     for (const [k, v] of Object.entries(fields)) {
@@ -35,6 +43,7 @@ export function shareAuditFailure(
   err: unknown,
   extra?: ShareAuditFields
 ): void {
+  if (!isShareAuditEnabled()) return;
   const e = err as {
     message?: string;
     code?: string;
