@@ -22,13 +22,46 @@ const mockRow = {
   views_count: 0,
   include_personal_info: false,
   snapshot_json: {
+    version: 2,
+    nickname: "Mock Share Property",
     address: "123 Test St",
     city: "Austin",
     state: "TX",
-    score: { overall: 88, label: "Good" },
-    maintenanceCount: 2,
-    repairCount: 1,
-    applianceCount: 3,
+    zip: "78701",
+    fullAddress: "123 Test St, Austin, TX 78701",
+    propertyType: "Primary Residence",
+    yearBuilt: "2015",
+    squareFootage: "2,450",
+    bedrooms: "4",
+    bathrooms: "3",
+    lotSize: "0.25 acres",
+    ownerMessage: "Welcome to this read-only property preview.",
+    counts: {
+      maintenance: 2,
+      repairs: 1,
+      appliances: 3,
+      documents: 1,
+      photos: 2,
+      warranties: 1,
+      upcomingMaintenance: 1,
+    },
+    timeline: [{ date: "May 2025", title: "HVAC service", kind: "maintenance", detail: "HVAC" }],
+    recentRepairs: [{ title: "Roof patch", date: "Apr 2025", category: "Exterior" }],
+    maintenanceHistory: [{ title: "Filter change", lastCompleted: "May 2025", status: "Completed" }],
+    upcomingMaintenance: [{ title: "Gutter cleaning", nextDue: "Aug 2025", status: "Upcoming" }],
+    appliances: [
+      {
+        name: "Refrigerator",
+        brand: "Samsung",
+        model: "RF28",
+        installYear: "2021",
+        condition: "Good",
+        warrantyExpires: "2026",
+      },
+    ],
+    gallery: [],
+    documents: [{ title: "Inspection report", category: "inspection", uploadDate: "2024" }],
+    warranties: [{ title: "HVAC warranty", expiresDate: "2030", source: "document" }],
   },
   created_at: new Date().toISOString(),
 };
@@ -66,9 +99,10 @@ const report = await page.evaluate(() => {
     root: r(root),
     firstChild: r(first),
     text: text.slice(0, 400),
-    hasPropertyUi: /Property Overview|Mock Share Property|Home Health Score|Read-only Share/i.test(
+    hasPropertyUi: /Property Details|Mock Share Property|Read-only Share|Summary|Maintenance Tasks/i.test(
       text
     ),
+    hasHomeHealthScore: /Home Health Score/i.test(text),
     hasRedSmoke: /PUBLIC SHARE WORKS/.test(text),
     hasForensicsHud: /SHARE FORENSICS|Copy forensic report/i.test(text),
     hasInvalid: /invalid, expired, or no longer active/i.test(text),
@@ -82,6 +116,7 @@ const ok =
   (report.root?.h ?? 0) > 100 &&
   (report.firstChild?.h ?? 0) > 100 &&
   report.hasPropertyUi &&
+  !report.hasHomeHealthScore &&
   !report.hasRedSmoke &&
   !report.hasForensicsHud &&
   !report.hasInvalid;

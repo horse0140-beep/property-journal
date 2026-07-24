@@ -24,6 +24,7 @@ import {
   updatePropertyShare,
 } from "@/services/sharingService";
 import { buildShareUrl, logShareUrlConfig } from "@/lib/shareUrl";
+import { buildPropertyShareSnapshot } from "@/lib/shareSnapshot";
 import { shareAudit } from "@/lib/shareAudit";
 import { notifyUser, openShareLink, sharePropertyLink } from "@/lib/webShare";
 import { UserFacingError, friendlyMessage, logTechnicalError } from "@/lib/userErrors";
@@ -31,7 +32,14 @@ import type { PropertyShare } from "@/types/premium";
 
 export default function PropertySharingScreen() {
   const { user } = useAuth();
-  const { selectedProperty, maintenanceItems, repairs, appliances, getPropertyScore } = useHomeWise();
+  const {
+    selectedProperty,
+    maintenanceItems,
+    repairs,
+    appliances,
+    documents,
+    photos,
+  } = useHomeWise();
   const [shares, setShares] = useState<PropertyShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,6 +47,7 @@ export default function PropertySharingScreen() {
   const [editing, setEditing] = useState<PropertyShare | null>(null);
   const [label, setLabel] = useState("");
   const [includePersonal, setIncludePersonal] = useState(false);
+  const [ownerMessage, setOwnerMessage] = useState("");
   const [expiresDays, setExpiresDays] = useState("30");
   const [saving, setSaving] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
@@ -78,6 +87,7 @@ export default function PropertySharingScreen() {
     setEditing(null);
     setLabel(`${selectedProperty.address} Share`);
     setIncludePersonal(false);
+    setOwnerMessage("");
     setExpiresDays("30");
     setModalOpen(true);
   }
@@ -86,6 +96,11 @@ export default function PropertySharingScreen() {
     setEditing(share);
     setLabel(share.label);
     setIncludePersonal(share.include_personal_info);
+    setOwnerMessage(
+      typeof share.snapshot_json === "object" && share.snapshot_json && !Array.isArray(share.snapshot_json)
+        ? String((share.snapshot_json as { ownerMessage?: string }).ownerMessage ?? "")
+        : ""
+    );
     setExpiresDays("30");
     setModalOpen(true);
   }
@@ -98,27 +113,28 @@ export default function PropertySharingScreen() {
         ? new Date(Date.now() + parseInt(expiresDays, 10) * 86400000).toISOString()
         : null;
 
-      const pid = selectedProperty.id;
-      const snapshot = {
-        address: selectedProperty.address,
-        city: selectedProperty.city,
-        state: selectedProperty.state,
-        score: getPropertyScore(pid),
-        maintenanceCount: maintenanceItems.filter((m) => m.propertyId === pid).length,
-        repairCount: repairs.filter((r) => r.propertyId === pid).length,
-        applianceCount: appliances.filter((a) => a.propertyId === pid).length,
-      };
+      const snapshot = buildPropertyShareSnapshot({
+        property: selectedProperty,
+        maintenanceItems,
+        repairs,
+        appliances,
+        documents,
+        photos,
+        includePersonalInfo: includePersonal,
+        ownerMessage,
+      });
 
       if (editing) {
         await updatePropertyShare(editing.id, {
           label: label.trim(),
           include_personal_info: includePersonal,
           expires_at,
+          snapshot_json: snapshot,
         });
       } else {
         await createPropertyShare(user.id, {
-          property_id: pid,
-          property_label: selectedProperty.address,
+          property_id: selectedProperty.id,
+          property_label: selectedProperty.nickname || selectedProperty.address,
           label: label.trim(),
           include_personal_info: includePersonal,
           expires_at,
@@ -283,7 +299,8 @@ export default function PropertySharingScreen() {
                 <Ionicons name="share-social-outline" size={48} color={colors.textMuted} />
                 <Text style={styles.emptyStateTitle}>No shares yet</Text>
                 <Text style={styles.emptyStateText}>
-                  Create a link to share your property&apos;s maintenance history, health score, and repair records.
+                  Create a link to share a read-only property report with maintenance history,
+                  repairs, appliances, and photos.
                 </Text>
                 <Pressable style={[styles.primaryButton, { alignSelf: "stretch" }]} onPress={openCreate}>
                   <Text style={styles.primaryButtonText}>Create Share Link</Text>
@@ -364,6 +381,13 @@ export default function PropertySharingScreen() {
         <AdminFormModal visible={modalOpen} title={editing ? "Edit Share" : "New Share Link"} onClose={() => setModalOpen(false)} onSave={handleSave} saving={saving}>
           <AdminField label="Link Label" value={label} onChangeText={setLabel} placeholder="Buyer Preview Link" />
           <AdminField label="Expires In (days)" value={expiresDays} onChangeText={setExpiresDays} keyboardType="numeric" placeholder="30" />
+          <AdminField
+            label="Owner Message (optional)"
+            value={ownerMessage}
+            onChangeText={setOwnerMessage}
+            placeholder="A short note for viewers of this share"
+            multiline
+          />
           <AdminSwitch label="Include owner contact info" value={includePersonal} onValueChange={setIncludePersonal} />
         </AdminFormModal>
       </PremiumGate>

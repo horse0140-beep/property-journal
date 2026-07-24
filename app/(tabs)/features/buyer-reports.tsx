@@ -22,6 +22,7 @@ import {
   isShareConfigured,
   SHARE_NOT_CONFIGURED_MESSAGE,
 } from "@/services/sharingService";
+import { buildPropertyShareSnapshot } from "@/lib/shareSnapshot";
 import type { PropertyShare } from "@/types/premium";
 
 export default function BuyerReportsScreen() {
@@ -32,6 +33,7 @@ export default function BuyerReportsScreen() {
     repairs,
     appliances,
     documents,
+    photos,
     contractors,
     getPropertyScore,
   } = useHomeWise();
@@ -112,21 +114,20 @@ export default function BuyerReportsScreen() {
     try {
       const share = await createPropertyShare(user.id, {
         property_id: pid,
-        property_label: property.address,
+        property_label: property.nickname || property.address,
         label: `Buyer Report — ${property.address}`,
         include_personal_info: false,
         expires_at: new Date(Date.now() + 90 * 86400000).toISOString(),
-        snapshot_json: {
-          type: "buyer_report",
-          address: property.address,
-          city: property.city,
-          state: property.state,
-          score: score.overall,
-          maintenanceCount: propMaint.length,
-          repairCount: propRepairs.length,
-          totalInvested,
-          certified: score.overall >= 85,
-        },
+        snapshot_json: buildPropertyShareSnapshot({
+          property,
+          maintenanceItems,
+          repairs,
+          appliances,
+          documents,
+          photos,
+          includePersonalInfo: false,
+          ownerMessage: "Buyer preview — read-only property history from Property Journal.",
+        }),
       });
 
       const message = buildShareMessage(

@@ -10,6 +10,8 @@ export type Property = {
   squareFeet: string;
   bedrooms: string;
   bathrooms: string;
+  /** Optional lot size from properties.lot_size when present. */
+  lotSize?: string;
   purchasePrice: string;
   estimatedValue: string;
   purchaseDate: string;

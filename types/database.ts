@@ -116,6 +116,7 @@ export function rowToProperty(row: Record<string, unknown>): Property {
     squareFeet: toDisplayString(row.square_feet),
     bedrooms: toDisplayString(row.bedrooms),
     bathrooms: toDisplayString(row.bathrooms),
+    lotSize: toDisplayString(row.lot_size),
     purchasePrice: toDisplayString(row.purchase_price),
     estimatedValue: toDisplayString(row.estimated_value ?? row.value),
     purchaseDate: toIsoOrEmpty(row.purchase_date),
@@ -148,6 +149,7 @@ export function propertyToRow(p: Property): Record<string, unknown> {
   setNumericFieldNullable(row, "square_feet", p.squareFeet);
   setNumericFieldNullable(row, "bedrooms", p.bedrooms);
   setNumericFieldNullable(row, "bathrooms", p.bathrooms);
+  if (p.lotSize !== undefined) setNumericFieldNullable(row, "lot_size", p.lotSize);
   setNumericFieldNullable(row, "purchase_price", p.purchasePrice);
   setNumericFieldNullable(row, "estimated_value", p.estimatedValue);
   setIsoDateFieldNullable(row, "purchase_date", p.purchaseDate, "Purchase date");
@@ -182,6 +184,7 @@ function propertyPartialToRow(updates: Partial<Property>): Record<string, unknow
   if (updates.squareFeet !== undefined) setNumericFieldNullable(row, "square_feet", updates.squareFeet);
   if (updates.bedrooms !== undefined) setNumericFieldNullable(row, "bedrooms", updates.bedrooms);
   if (updates.bathrooms !== undefined) setNumericFieldNullable(row, "bathrooms", updates.bathrooms);
+  if (updates.lotSize !== undefined) setNumericFieldNullable(row, "lot_size", updates.lotSize);
   if (updates.purchasePrice !== undefined) setNumericFieldNullable(row, "purchase_price", updates.purchasePrice);
   if (updates.estimatedValue !== undefined) setNumericFieldNullable(row, "estimated_value", updates.estimatedValue);
   if (updates.purchaseDate !== undefined) setIsoDateFieldNullable(row, "purchase_date", updates.purchaseDate, "Purchase date");
