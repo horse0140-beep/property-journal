@@ -97,20 +97,6 @@ export default function SharedPropertyScreen() {
     });
   }
 
-  /**
-   * VISUAL BISECT — set true only while diagnosing blank paint.
-   * Keep false in production so the real public share UI renders.
-   */
-  const VISUAL_BISECT_RED_SCREEN = false;
-  if (VISUAL_BISECT_RED_SCREEN) {
-    forensicStep(10, "visual bisect red smoke screen rendered");
-    return (
-      <View style={{ flex: 1, backgroundColor: "red" }}>
-        <Text style={{ fontSize: 40, color: "white" }}>PUBLIC SHARE WORKS</Text>
-      </View>
-    );
-  }
-
   return (
     <ShareErrorBoundary>
       <SharedPropertyScreenInner />
