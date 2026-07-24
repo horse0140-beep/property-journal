@@ -30,9 +30,10 @@ const SPLASH_BG = "#0F2460";
 
 /**
  * SPA exports ignore app/+html.tsx and always inject body { overflow: hidden }.
- * Unlock scrolling as soon as this module evaluates on /share/* (before React paint).
- * Also install global JS error handlers + Eruda so Android exceptions are captured
- * even if the share route module never mounts.
+ * CRITICAL (visual audit): do NOT set #root to display:block / height:auto.
+ * That breaks RN Web's flex:1 chain — children compute height:0 while text still
+ * exists in the DOM (blank Android page with STEP 10 still logging).
+ * Keep #root as display:flex + height:100% (Expo reset). ScrollView owns scroll.
  */
 (function unlockPublicShareScrollEarly() {
   if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -47,8 +48,19 @@ const SPLASH_BG = "#0F2460";
     const style = document.createElement("style");
     style.id = "pj-share-unlock";
     style.textContent =
-      "html.pj-share-route,html.pj-share-route body{height:auto!important;min-height:100%!important;overflow:auto!important;overflow-y:auto!important;background-color:#F0F4FF!important;}" +
-      "html.pj-share-route #root{height:auto!important;min-height:100vh!important;display:block!important;}";
+      "html.pj-share-route,html.pj-share-route body{" +
+      "height:100%!important;min-height:100%!important;" +
+      "overflow:hidden!important;" +
+      "background-color:#F0F4FF!important;" +
+      "}" +
+      "html.pj-share-route #root{" +
+      "display:flex!important;" +
+      "flex-direction:column!important;" +
+      "flex:1!important;" +
+      "height:100%!important;" +
+      "min-height:100%!important;" +
+      "width:100%!important;" +
+      "}";
     document.head.appendChild(style);
   } catch {
     // ignore

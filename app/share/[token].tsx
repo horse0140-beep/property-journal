@@ -97,6 +97,21 @@ export default function SharedPropertyScreen() {
     });
   }
 
+  /**
+   * VISUAL BISECT STEP A — temporary red smoke screen.
+   * Proves routing + flex paint chain (no SafeAreaView / ScrollView).
+   * Flip to false after Android confirms red "PUBLIC SHARE WORKS".
+   */
+  const VISUAL_BISECT_RED_SCREEN = true;
+  if (VISUAL_BISECT_RED_SCREEN) {
+    forensicStep(10, "visual bisect red smoke screen rendered");
+    return (
+      <View style={{ flex: 1, backgroundColor: "red" }}>
+        <Text style={{ fontSize: 40, color: "white" }}>PUBLIC SHARE WORKS</Text>
+      </View>
+    );
+  }
+
   return (
     <ShareErrorBoundary>
       <SharedPropertyScreenInner />
@@ -300,16 +315,8 @@ function SharedPropertyScreenInner() {
     if (Platform.OS === "web") {
       startShareErudaConsole();
       document.documentElement.classList.add("pj-share-route");
-      const prevHtml = document.documentElement.style.overflow;
-      const prevBody = document.body.style.overflow;
-      document.documentElement.style.overflow = "auto";
-      document.body.style.overflow = "auto";
-      document.body.style.height = "auto";
-      document.documentElement.style.height = "auto";
-      return () => {
-        document.documentElement.style.overflow = prevHtml;
-        document.body.style.overflow = prevBody;
-      };
+      // Do NOT override html/body height or #root display here — that collapses
+      // RN Web flex:1 children to height:0 (blank page). Unlock lives in _layout.
     }
   }, []);
 
