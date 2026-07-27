@@ -23,6 +23,7 @@ import {
   SHARE_NOT_CONFIGURED_MESSAGE,
 } from "@/services/sharingService";
 import { buildPropertyShareSnapshot } from "@/lib/shareSnapshot";
+import { applySharePreset } from "@/lib/sharePermissions";
 import type { PropertyShare } from "@/types/premium";
 
 export default function BuyerReportsScreen() {
@@ -118,16 +119,28 @@ export default function BuyerReportsScreen() {
         label: `Buyer Report — ${property.address}`,
         include_personal_info: false,
         expires_at: new Date(Date.now() + 90 * 86400000).toISOString(),
-        snapshot_json: buildPropertyShareSnapshot({
-          property,
-          maintenanceItems,
-          repairs,
-          appliances,
-          documents,
-          photos,
-          includePersonalInfo: false,
-          ownerMessage: "Buyer preview — read-only property history from Property Journal.",
-        }),
+        snapshot_json: (() => {
+          const permissions = applySharePreset("buyer", {
+            maintenance: maintenanceItems.filter((m) => m.propertyId === pid).map((m) => m.id),
+            repairs: repairs.filter((r) => r.propertyId === pid).map((r) => r.id),
+            appliances: appliances.filter((a) => a.propertyId === pid).map((a) => a.id),
+            documents: documents.filter((d) => d.propertyId === pid).map((d) => d.id),
+            photos: photos
+              .filter((p) => p.propertyId === pid && Boolean(p.uri?.trim()))
+              .map((p) => p.id),
+          });
+          permissions.sections.ownerMessage = true;
+          return buildPropertyShareSnapshot({
+            property,
+            maintenanceItems,
+            repairs,
+            appliances,
+            documents,
+            photos,
+            permissions,
+            ownerMessage: "Buyer preview — read-only property history from Property Journal.",
+          }) as unknown as Record<string, unknown>;
+        })(),
       });
 
       const message = buildShareMessage(

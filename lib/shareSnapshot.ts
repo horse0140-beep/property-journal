@@ -6,6 +6,11 @@ import type {
   Property,
   Repair,
 } from "@/data/demoData";
+import {
+  defaultSharePermissions,
+  parseSharePermissions,
+  type SharePermissions,
+} from "@/lib/sharePermissions";
 
 export type ShareTimelineItem = {
   date: string;
@@ -15,14 +20,17 @@ export type ShareTimelineItem = {
 };
 
 export type ShareRepairItem = {
+  id?: string;
   title: string;
   date: string;
   category?: string;
   cost?: string;
+  contractor?: string;
   notes?: string;
 };
 
 export type ShareMaintenanceItem = {
+  id?: string;
   title: string;
   lastCompleted?: string;
   nextDue?: string;
@@ -32,9 +40,11 @@ export type ShareMaintenanceItem = {
 };
 
 export type ShareApplianceItem = {
+  id?: string;
   name: string;
   brand?: string;
   model?: string;
+  serial?: string;
   installYear?: string;
   condition?: string;
   warrantyExpires?: string;
@@ -42,12 +52,14 @@ export type ShareApplianceItem = {
 };
 
 export type ShareGalleryItem = {
+  id?: string;
   uri: string;
   caption: string;
   date?: string;
 };
 
 export type ShareDocItem = {
+  id?: string;
   title: string;
   category: string;
   uploadDate?: string;
@@ -55,13 +67,15 @@ export type ShareDocItem = {
 };
 
 export type ShareWarrantyItem = {
+  id?: string;
   title: string;
   expiresDate?: string;
   source: "document" | "appliance" | "repair";
 };
 
 export type PropertyShareSnapshot = {
-  version: 2;
+  version: 3;
+  permissions: SharePermissions;
   nickname: string;
   address: string;
   city: string;
@@ -76,6 +90,7 @@ export type PropertyShareSnapshot = {
   lotSize: string;
   photoUri?: string;
   ownerMessage?: string;
+  ownerContact?: { email?: string; phone?: string };
   counts: {
     maintenance: number;
     repairs: number;
@@ -104,36 +119,21 @@ const PROPERTY_TYPE_LABELS: Record<string, string> = {
 
 function display(value: unknown): string {
   if (value == null) return "";
-  const s = String(value).trim();
-  return s;
+  return String(value).trim();
 }
 
 function yearFromDate(value: string | undefined): string {
   const raw = display(value);
   if (!raw) return "";
-  const match = raw.match(/(19|20)\d{2}/);
-  return match?.[0] ?? "";
+  return raw.match(/(19|20)\d{2}/)?.[0] ?? "";
 }
 
 function parseSortableDate(value: string | undefined): number {
   if (!value?.trim()) return 0;
   const t = Date.parse(value);
   if (!Number.isNaN(t)) return t;
-  // Fallback for labels like "Nov 2024"
   const m = value.match(/(19|20)\d{2}/);
   return m ? Date.parse(`Jan 1, ${m[0]}`) : 0;
-}
-
-/** Documents treated as shareable for public links (no personal receipts by default). */
-export function isShareableDocument(doc: Document, includePersonalInfo: boolean): boolean {
-  const tags = (doc.tags ?? []).map((t) => t.toLowerCase());
-  if (tags.includes("private") || tags.includes("personal")) return false;
-  if (tags.includes("shareable") || tags.includes("public")) return true;
-  if (["warranty", "inspection", "permit", "manual"].includes(doc.category)) return true;
-  if (!includePersonalInfo && ["receipt", "contract", "insurance", "other"].includes(doc.category)) {
-    return false;
-  }
-  return includePersonalInfo;
 }
 
 function formatPropertyType(type: string | undefined): string {
@@ -145,6 +145,10 @@ function fullAddress(p: Property): string {
   return [p.address, p.city, p.state, p.zip].map(display).filter(Boolean).join(", ");
 }
 
+function idSet(ids: string[]): Set<string> {
+  return new Set(ids.filter(Boolean));
+}
+
 export type BuildShareSnapshotInput = {
   property: Property & { lotSize?: string };
   maintenanceItems: MaintenanceItem[];
@@ -152,8 +156,10 @@ export type BuildShareSnapshotInput = {
   appliances: Appliance[];
   documents: Document[];
   photos: PhotoItem[];
-  includePersonalInfo: boolean;
+  permissions: SharePermissions;
   ownerMessage?: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
 };
 
 export function buildPropertyShareSnapshot(input: BuildShareSnapshotInput): PropertyShareSnapshot {
@@ -164,36 +170,68 @@ export function buildPropertyShareSnapshot(input: BuildShareSnapshotInput): Prop
     appliances,
     documents,
     photos,
-    includePersonalInfo,
+    permissions,
     ownerMessage,
+    ownerEmail,
+    ownerPhone,
   } = input;
-
+  const s = permissions.sections;
   const pid = property.id;
-  const maint = maintenanceItems.filter((m) => m.propertyId === pid);
-  const propRepairs = repairs.filter((r) => r.propertyId === pid);
-  const propApps = appliances.filter((a) => a.propertyId === pid);
-  const propPhotos = photos.filter((p) => p.propertyId === pid && Boolean(p.uri?.trim()));
-  const shareableDocs = documents.filter(
-    (d) => d.propertyId === pid && isShareableDocument(d, includePersonalInfo)
-  );
 
-  const upcoming = maint
-    .filter((m) => m.status === "Upcoming" || m.status === "Due Soon" || m.status === "Overdue")
-    .sort((a, b) => parseSortableDate(a.nextDue) - parseSortableDate(b.nextDue));
+  const maintAll = maintenanceItems.filter((m) => m.propertyId === pid);
+  const repairAll = repairs.filter((r) => r.propertyId === pid);
+  const appAll = appliances.filter((a) => a.propertyId === pid);
+  const photoAll = photos.filter((p) => p.propertyId === pid && Boolean(p.uri?.trim()));
+  const docAll = documents.filter((d) => d.propertyId === pid);
 
-  const completedMaint = maint
-    .filter((m) => Boolean(m.lastCompleted?.trim()))
-    .sort((a, b) => parseSortableDate(b.lastCompleted) - parseSortableDate(a.lastCompleted));
+  const maintIds = idSet(permissions.itemIds.maintenance);
+  const repairIds = idSet(permissions.itemIds.repairs);
+  const appIds = idSet(permissions.itemIds.appliances);
+  const photoIds = idSet(permissions.itemIds.photos);
+  const docIds = idSet(permissions.itemIds.documents);
 
-  const recentRepairs = [...propRepairs]
+  const maint = (s.maintenanceHistory || s.upcomingMaintenance
+    ? maintAll.filter((m) => maintIds.has(m.id))
+    : []) as MaintenanceItem[];
+  const propRepairs = s.completedRepairs
+    ? repairAll.filter((r) => repairIds.has(r.id))
+    : [];
+  const propApps = s.appliances ? appAll.filter((a) => appIds.has(a.id)) : [];
+  const propPhotos = s.propertyPhotos ? photoAll.filter((p) => photoIds.has(p.id)) : [];
+
+  const selectedDocs = docAll.filter((d) => docIds.has(d.id));
+  const docsForShare = selectedDocs.filter((d) => {
+    if (d.category === "receipt") return s.receipts;
+    if (d.category === "inspection") return s.inspectionReports || s.documents;
+    if (d.category === "permit") return s.permits || s.documents;
+    if (d.category === "warranty") return s.warranties || s.documents;
+    return s.documents;
+  });
+
+  const upcoming = s.upcomingMaintenance
+    ? maint
+        .filter((m) => m.status === "Upcoming" || m.status === "Due Soon" || m.status === "Overdue")
+        .sort((a, b) => parseSortableDate(a.nextDue) - parseSortableDate(b.nextDue))
+    : [];
+
+  const completedMaint = s.maintenanceHistory
+    ? maint
+        .filter((m) => Boolean(m.lastCompleted?.trim()))
+        .sort((a, b) => parseSortableDate(b.lastCompleted) - parseSortableDate(a.lastCompleted))
+    : [];
+
+  const recentRepairs: ShareRepairItem[] = propRepairs
     .sort((a, b) => parseSortableDate(b.date) - parseSortableDate(a.date))
-    .slice(0, 12)
+    .slice(0, 40)
     .map((r) => ({
+      id: r.id,
       title: r.title,
       date: r.date,
       category: r.category,
-      cost: includePersonalInfo ? r.cost : undefined,
-      notes: r.notes,
+      cost: s.repairCosts ? r.cost : undefined,
+      contractor: s.contractorContact ? r.contractor : undefined,
+      // Private notes never included
+      notes: undefined,
     }));
 
   const timeline: ShareTimelineItem[] = [
@@ -215,95 +253,111 @@ export function buildPropertyShareSnapshot(input: BuildShareSnapshotInput): Prop
     .slice(0, 40);
 
   const applianceRows: ShareApplianceItem[] = propApps.map((a) => ({
+    id: a.id,
     name: a.name,
     brand: a.brand,
-    model: a.model,
+    model: s.applianceModelSerial ? a.model : undefined,
+    serial: s.applianceModelSerial ? a.serial : undefined,
     installYear: yearFromDate(a.installDate),
     condition: a.condition,
-    warrantyExpires: a.warrantyExpires,
-    photoUri:
-      a.photoUris?.find((u) => Boolean(u?.trim())) || a.photoUri?.trim() || undefined,
+    warrantyExpires: s.warranties ? a.warrantyExpires : undefined,
+    photoUri: s.appliancePhotos
+      ? a.photoUris?.find((u) => Boolean(u?.trim())) || a.photoUri?.trim() || undefined
+      : undefined,
   }));
 
   const gallery: ShareGalleryItem[] = propPhotos.map((p) => ({
+    id: p.id,
     uri: p.uri,
     caption: p.caption || p.category || "Property photo",
     date: p.date,
   }));
 
-  const docRows: ShareDocItem[] = shareableDocs.map((d) => ({
+  const docRows: ShareDocItem[] = docsForShare.map((d) => ({
+    id: d.id,
     title: d.title,
     category: d.category,
     uploadDate: d.uploadDate,
     expiresDate: d.expiresDate,
   }));
 
-  const warrantyDocs = shareableDocs
-    .filter((d) => d.category === "warranty")
-    .map(
-      (d): ShareWarrantyItem => ({
+  const warranties: ShareWarrantyItem[] = [];
+  if (s.warranties) {
+    for (const d of docsForShare.filter((x) => x.category === "warranty")) {
+      warranties.push({
+        id: d.id,
         title: d.title,
         expiresDate: d.expiresDate,
         source: "document",
-      })
-    );
-
-  const warrantyApps = propApps
-    .filter((a) => Boolean(a.warrantyExpires?.trim()))
-    .map(
-      (a): ShareWarrantyItem => ({
+      });
+    }
+    for (const a of propApps.filter((x) => Boolean(x.warrantyExpires?.trim()))) {
+      warranties.push({
+        id: a.id,
         title: `${a.name} warranty`,
         expiresDate: a.warrantyExpires,
         source: "appliance",
-      })
-    );
-
-  const warrantyRepairs = propRepairs
-    .filter((r) => Boolean(r.warrantyExpires?.trim()))
-    .map(
-      (r): ShareWarrantyItem => ({
+      });
+    }
+    for (const r of propRepairs.filter((x) => Boolean(x.warrantyExpires?.trim()))) {
+      warranties.push({
+        id: r.id,
         title: `${r.title} warranty`,
         expiresDate: r.warrantyExpires,
         source: "repair",
-      })
-    );
+      });
+    }
+  }
 
-  const warranties = [...warrantyDocs, ...warrantyApps, ...warrantyRepairs];
+  const showBasic = s.basicPropertyInfo;
+  const showAddress = s.propertyAddress;
 
   return {
-    version: 2,
-    nickname: display(property.nickname) || display(property.address) || "Shared property",
-    address: display(property.address),
-    city: display(property.city),
-    state: display(property.state),
-    zip: display(property.zip),
-    fullAddress: fullAddress(property),
-    propertyType: formatPropertyType(property.type),
-    yearBuilt: display(property.yearBuilt),
-    squareFootage: display(property.squareFeet),
-    bedrooms: display(property.bedrooms),
-    bathrooms: display(property.bathrooms),
-    lotSize: display(property.lotSize),
-    photoUri: property.photoUri?.trim() || undefined,
-    ownerMessage: display(ownerMessage) || undefined,
+    version: 3,
+    permissions,
+    nickname: showBasic
+      ? display(property.nickname) || display(property.address) || "Shared property"
+      : "Shared property",
+    address: showAddress ? display(property.address) : "",
+    city: showAddress ? display(property.city) : "",
+    state: showAddress ? display(property.state) : "",
+    zip: showAddress ? display(property.zip) : "",
+    fullAddress: showAddress ? fullAddress(property) : "",
+    propertyType: showBasic ? formatPropertyType(property.type) : "",
+    yearBuilt: showBasic ? display(property.yearBuilt) : "",
+    squareFootage: showBasic ? display(property.squareFeet) : "",
+    bedrooms: showBasic ? display(property.bedrooms) : "",
+    bathrooms: showBasic ? display(property.bathrooms) : "",
+    lotSize: showBasic ? display(property.lotSize) : "",
+    photoUri:
+      s.propertyPhotos && property.photoUri?.trim() ? property.photoUri.trim() : undefined,
+    ownerMessage: s.ownerMessage ? display(ownerMessage) || undefined : undefined,
+    ownerContact: s.ownerContact
+      ? {
+          email: display(ownerEmail) || undefined,
+          phone: display(ownerPhone) || undefined,
+        }
+      : undefined,
     counts: {
-      maintenance: maint.length,
-      repairs: propRepairs.length,
-      appliances: propApps.length,
-      documents: shareableDocs.length,
-      photos: propPhotos.length + (property.photoUri ? 1 : 0),
+      maintenance: completedMaint.length + (s.upcomingMaintenance ? upcoming.length : 0),
+      repairs: recentRepairs.length,
+      appliances: applianceRows.length,
+      documents: docRows.length,
+      photos: gallery.length + (s.propertyPhotos && property.photoUri ? 1 : 0),
       warranties: warranties.length,
       upcomingMaintenance: upcoming.length,
     },
-    timeline,
+    timeline: s.maintenanceHistory || s.completedRepairs ? timeline : [],
     recentRepairs,
-    maintenanceHistory: completedMaint.slice(0, 20).map((m) => ({
+    maintenanceHistory: completedMaint.slice(0, 40).map((m) => ({
+      id: m.id,
       title: m.title,
       lastCompleted: m.lastCompleted,
       category: m.category,
       status: m.status,
     })),
-    upcomingMaintenance: upcoming.slice(0, 20).map((m) => ({
+    upcomingMaintenance: upcoming.slice(0, 40).map((m) => ({
+      id: m.id,
       title: m.title,
       nextDue: m.nextDue,
       status: m.status,
@@ -317,11 +371,98 @@ export function buildPropertyShareSnapshot(input: BuildShareSnapshotInput): Prop
   };
 }
 
-/** Normalize RPC/legacy snapshot payloads for the public share page. */
-export function normalizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
-  if (raw == null) {
-    return emptySnapshot();
+/** Client + RPC defense: strip anything not allowed by embedded permissions. */
+export function sanitizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
+  const snap = normalizeShareSnapshot(raw);
+  // Legacy v1/v2 snapshots (no permissions object) already contain only what was
+  // stored at create time — do not re-strip against modern defaults.
+  const rawObj =
+    raw != null && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : null;
+  if (!rawObj?.permissions) {
+    snap.recentRepairs = snap.recentRepairs.map((r) => ({ ...r, notes: undefined }));
+    return snap;
   }
+
+  const p = snap.permissions ?? defaultSharePermissions();
+  const s = p.sections;
+
+  if (!s.basicPropertyInfo) {
+    snap.propertyType = "";
+    snap.yearBuilt = "";
+    snap.squareFootage = "";
+    snap.bedrooms = "";
+    snap.bathrooms = "";
+    snap.lotSize = "";
+    if (!s.propertyAddress) snap.nickname = "Shared property";
+  }
+  if (!s.propertyAddress) {
+    snap.address = "";
+    snap.city = "";
+    snap.state = "";
+    snap.zip = "";
+    snap.fullAddress = "";
+  }
+  if (!s.propertyPhotos) {
+    snap.photoUri = undefined;
+    snap.gallery = [];
+  }
+  if (!s.maintenanceHistory) snap.maintenanceHistory = [];
+  if (!s.upcomingMaintenance) snap.upcomingMaintenance = [];
+  if (!s.completedRepairs) snap.recentRepairs = [];
+  if (!s.maintenanceHistory && !s.completedRepairs) snap.timeline = [];
+  if (!s.repairCosts) {
+    snap.recentRepairs = snap.recentRepairs.map((r) => ({ ...r, cost: undefined }));
+  }
+  if (!s.contractorContact) {
+    snap.recentRepairs = snap.recentRepairs.map((r) => ({ ...r, contractor: undefined }));
+  }
+  if (!s.appliances) snap.appliances = [];
+  if (!s.appliancePhotos) {
+    snap.appliances = snap.appliances.map((a) => ({ ...a, photoUri: undefined }));
+  }
+  if (!s.applianceModelSerial) {
+    snap.appliances = snap.appliances.map((a) => ({
+      ...a,
+      model: undefined,
+      serial: undefined,
+    }));
+  }
+  if (!s.documents && !s.receipts && !s.inspectionReports && !s.permits && !s.warranties) {
+    snap.documents = [];
+  } else {
+    snap.documents = snap.documents.filter((d) => {
+      if (d.category === "receipt") return s.receipts;
+      if (d.category === "inspection") return s.inspectionReports || s.documents;
+      if (d.category === "permit") return s.permits || s.documents;
+      if (d.category === "warranty") return s.warranties || s.documents;
+      return s.documents;
+    });
+  }
+  if (!s.warranties) snap.warranties = [];
+  if (!s.ownerMessage) snap.ownerMessage = undefined;
+  if (!s.ownerContact) snap.ownerContact = undefined;
+
+  // Never leak private notes
+  snap.recentRepairs = snap.recentRepairs.map((r) => ({ ...r, notes: undefined }));
+
+  snap.counts = {
+    maintenance: snap.maintenanceHistory.length + snap.upcomingMaintenance.length,
+    repairs: snap.recentRepairs.length,
+    appliances: snap.appliances.length,
+    documents: snap.documents.length,
+    photos: snap.gallery.length + (snap.photoUri ? 1 : 0),
+    warranties: snap.warranties.length,
+    upcomingMaintenance: snap.upcomingMaintenance.length,
+  };
+  snap.permissions = p;
+  snap.version = 3;
+  return snap;
+}
+
+export function normalizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
+  if (raw == null) return emptySnapshot();
   let value: unknown = raw;
   if (typeof value === "string") {
     try {
@@ -332,15 +473,24 @@ export function normalizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
   }
   if (typeof value !== "object" || Array.isArray(value)) return emptySnapshot();
   const o = value as Record<string, unknown>;
+  const permissions = parseSharePermissions(o.permissions) ?? defaultSharePermissions();
 
-  // Legacy v1 snapshots (counts + address only)
-  if (o.version !== 2) {
+  const version = Number(o.version) || 1;
+  if (version < 2) {
     const address = display(o.address);
     const city = display(o.city);
     const state = display(o.state);
     const zip = display(o.zip);
     return {
       ...emptySnapshot(),
+      permissions: {
+        ...defaultSharePermissions(),
+        sections: {
+          ...defaultSharePermissions().sections,
+          basicPropertyInfo: true,
+          propertyAddress: true,
+        },
+      },
       nickname: display(o.nickname) || address || "Shared property",
       address,
       city,
@@ -356,26 +506,29 @@ export function normalizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
       photoUri: display(o.photoUri) || undefined,
       ownerMessage: display(o.ownerMessage) || undefined,
       counts: {
-        maintenance: num(o.maintenanceCount ?? (o.counts as { maintenance?: number })?.maintenance),
-        repairs: num(o.repairCount ?? (o.counts as { repairs?: number })?.repairs),
-        appliances: num(o.applianceCount ?? (o.counts as { appliances?: number })?.appliances),
-        documents: num((o.counts as { documents?: number })?.documents),
-        photos: num((o.counts as { photos?: number })?.photos),
-        warranties: num((o.counts as { warranties?: number })?.warranties),
-        upcomingMaintenance: num((o.counts as { upcomingMaintenance?: number })?.upcomingMaintenance),
+        maintenance: num(o.maintenanceCount),
+        repairs: num(o.repairCount),
+        appliances: num(o.applianceCount),
+        documents: 0,
+        photos: 0,
+        warranties: 0,
+        upcomingMaintenance: 0,
       },
     };
   }
 
   const counts = (o.counts as PropertyShareSnapshot["counts"]) ?? emptySnapshot().counts;
   return {
-    version: 2,
+    version: 3,
+    permissions,
     nickname: display(o.nickname) || "Shared property",
     address: display(o.address),
     city: display(o.city),
     state: display(o.state),
     zip: display(o.zip),
-    fullAddress: display(o.fullAddress) || [o.address, o.city, o.state, o.zip].map(display).filter(Boolean).join(", "),
+    fullAddress:
+      display(o.fullAddress) ||
+      [o.address, o.city, o.state, o.zip].map(display).filter(Boolean).join(", "),
     propertyType: display(o.propertyType),
     yearBuilt: display(o.yearBuilt),
     squareFootage: display(o.squareFootage),
@@ -384,6 +537,13 @@ export function normalizeShareSnapshot(raw: unknown): PropertyShareSnapshot {
     lotSize: display(o.lotSize),
     photoUri: display(o.photoUri) || undefined,
     ownerMessage: display(o.ownerMessage) || undefined,
+    ownerContact:
+      o.ownerContact && typeof o.ownerContact === "object"
+        ? {
+            email: display((o.ownerContact as { email?: string }).email) || undefined,
+            phone: display((o.ownerContact as { phone?: string }).phone) || undefined,
+          }
+        : undefined,
     counts: {
       maintenance: num(counts.maintenance),
       repairs: num(counts.repairs),
@@ -415,7 +575,8 @@ function num(value: unknown): number {
 
 function emptySnapshot(): PropertyShareSnapshot {
   return {
-    version: 2,
+    version: 3,
+    permissions: defaultSharePermissions(),
     nickname: "Shared property",
     address: "",
     city: "",

@@ -138,6 +138,19 @@ export async function revokePropertyShare(id: string): Promise<PropertyShare> {
   return updatePropertyShare(id, { is_active: false });
 }
 
+/** Issues a new share_token; the previous URL stops working immediately. */
+export async function regeneratePropertyShareToken(id: string): Promise<PropertyShare> {
+  const { data, error } = await supabase
+    .from("property_shares")
+    .update({ share_token: generateToken(), is_active: true })
+    .eq("id", id)
+    .select()
+    .single();
+
+  assertNoError("sharing", error, "sharing");
+  return data as PropertyShare;
+}
+
 export async function deletePropertyShare(id: string) {
   const { error } = await supabase.from("property_shares").delete().eq("id", id);
   assertNoError("sharing_revoke", error, "sharing_revoke");
